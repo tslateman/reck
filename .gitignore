@@ -1,0 +1,26 @@
+# Local environment
+.env
+.env.local
+*.pyc
+__pycache__/
+.venv
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Simulation data
+sim/outputs/
+sim/logs/
