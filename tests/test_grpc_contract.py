@@ -14,8 +14,9 @@ import sys
 import time
 from pathlib import Path
 
-import grpc
 import pytest
+
+grpc = pytest.importorskip("grpc")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROTO_DIR = PROJECT_ROOT / "proto"

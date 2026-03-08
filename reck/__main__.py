@@ -31,6 +31,7 @@ from rules.confidence import RuleConfidence
 from rules.engine import RuleEngine
 from sim.plant import Plant
 from triage.prioritizer import Prioritizer
+from watch.client import WatchClient
 from watch.detector import AnomalyDetector
 
 logging.basicConfig(
@@ -60,6 +61,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     breaker = CircuitBreaker()
     escalation = EscalationHandler(data_dir=PROJECT_ROOT / "data")
     archive = DecisionArchive(data_dir=PROJECT_ROOT / "data")
+    watch_client = WatchClient()
 
     signal_queue: asyncio.Queue[SignalEvent] = asyncio.Queue()
 
@@ -76,6 +78,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
         """Main processing loop: drain signal queue through the full chain."""
         while True:
             event = await signal_queue.get()
+            watch_client.forward(event.source, event.value, event.unit)
             confidence.apply_pending_decay()
 
             # Update baseline
@@ -228,6 +231,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     await stop.wait()
     for t in tasks:
         t.cancel()
+    watch_client.close()
     baselines.close()
     confidence.close()
     logger.info("Reck stopped")
