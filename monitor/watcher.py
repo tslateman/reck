@@ -8,9 +8,20 @@ if it degrades beyond the starting distance from the proposed value.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Callable
 
 from reck.events import ActionLifecycle, ActionProposal
+
+
+@dataclass
+class MonitorResult:
+    """Result of a post-action monitoring window."""
+
+    outcome: ActionLifecycle
+    kpi_before: float
+    kpi_after: float
+    duration_s: int
 
 
 class ActionMonitor:
@@ -21,24 +32,32 @@ class ActionMonitor:
         proposal: ActionProposal,
         get_current_value: Callable[[], float],
         rollback_window_s: int = 60,
-    ) -> ActionLifecycle:
+    ) -> MonitorResult:
         """Poll value source and decide CONFIRMED or REVERTED.
 
         Compares the distance between the current reading and the
         proposed value. If the final reading drifts further than the
         initial distance, the action is considered degraded.
         """
-        initial = get_current_value()
-        initial_distance = abs(initial - proposal.proposed_value)
+        kpi_before = get_current_value()
+        initial_distance = abs(kpi_before - proposal.proposed_value)
 
         elapsed = 0
-        latest = initial
+        latest = kpi_before
         while elapsed < rollback_window_s:
             await asyncio.sleep(2)
             elapsed += 2
             latest = get_current_value()
 
         final_distance = abs(latest - proposal.proposed_value)
-        if final_distance > initial_distance:
-            return ActionLifecycle.REVERTED
-        return ActionLifecycle.CONFIRMED
+        outcome = (
+            ActionLifecycle.REVERTED
+            if final_distance > initial_distance
+            else ActionLifecycle.CONFIRMED
+        )
+        return MonitorResult(
+            outcome=outcome,
+            kpi_before=kpi_before,
+            kpi_after=latest,
+            duration_s=elapsed,
+        )

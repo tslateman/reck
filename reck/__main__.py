@@ -26,6 +26,7 @@ from reck.events import (
     GateDecision,
     SignalEvent,
 )
+from rules.confidence import RuleConfidence
 from rules.engine import RuleEngine
 from sim.plant import Plant
 from triage.prioritizer import Prioritizer
@@ -54,6 +55,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     gatekeeper = GateKeeper()
     executor = ActionExecutor()
     watcher = ActionMonitor()
+    confidence = RuleConfidence(db_path=PROJECT_ROOT / "data" / "confidence.db")
     breaker = CircuitBreaker()
     escalation = EscalationHandler(data_dir=PROJECT_ROOT / "data")
     archive = DecisionArchive(data_dir=PROJECT_ROOT / "data")
@@ -73,6 +75,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
         """Main processing loop: drain signal queue through the full chain."""
         while True:
             event = await signal_queue.get()
+            confidence.apply_pending_decay()
 
             # Update baseline
             baselines.update_baseline(event.source, event.value)
@@ -119,9 +122,11 @@ async def run_loop(*, anomaly: bool = False) -> None:
             proposal.lifecycle = ActionLifecycle.VALIDATED
 
             # Gate
+            rule_confidence = confidence.get(proposal.rule_name)
+            confidence.record_fired(proposal.rule_name)
             has_precedent = archive.check_precedent(proposal.source, proposal.rule_name)
             gate_decision, gate_reason = gatekeeper.decide(
-                proposal, constraint, has_precedent
+                proposal, constraint, has_precedent, rule_confidence=rule_confidence
             )
 
             if gate_decision == GateDecision.NO_GO:
@@ -165,11 +170,11 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 sig = plant.signals.get("temperature")
                 return sig.actual if sig else 0.0
 
-            outcome = await watcher.monitor(
+            result = await watcher.monitor(
                 proposal, get_value, rollback_window_s=proposal.rollback_window_s
             )
 
-            if outcome == ActionLifecycle.REVERTED:
+            if result.outcome == ActionLifecycle.REVERTED:
                 logger.warning("Monitor: reverting %s", proposal.action_id)
                 executor.revert(proposal.action_id, mqtt_publish)
                 breaker.record_outcome(LINE_ID, proposal.action_chain_id, True)
@@ -178,14 +183,20 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 proposal.lifecycle = ActionLifecycle.CONFIRMED
                 breaker.record_outcome(LINE_ID, proposal.action_chain_id, False)
 
+            success = result.outcome == ActionLifecycle.CONFIRMED
+            confidence.update(proposal.rule_name, success)
+
             record = DecisionRecord(
                 action_id=proposal.action_id,
                 anomaly=anomaly_event,
                 proposal=proposal,
                 constraint_check=constraint,
                 gate_decision=gate_decision,
-                outcome=outcome,
+                outcome=result.outcome,
                 action_chain_id=proposal.action_chain_id,
+                kpi_before=result.kpi_before,
+                kpi_after=result.kpi_after,
+                monitoring_duration_s=result.duration_s,
             )
             archive.record(record)
 
@@ -216,6 +227,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     for t in tasks:
         t.cancel()
     baselines.close()
+    confidence.close()
     logger.info("Reck stopped")
 
 
