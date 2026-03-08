@@ -28,6 +28,7 @@ test:
 check:
     uv run ruff check .
     uv run ruff format --check .
+    uv run pyright .
 
 # Format code
 fmt:

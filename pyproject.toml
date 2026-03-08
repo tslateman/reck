@@ -38,3 +38,21 @@ select = ["E", "F", "I", "W"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = ["integration: requires external services (gRPC, Rust binary)"]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.408",
+]
+
+[tool.pyright]
+include = ["."]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    ".venv",
+    "proto/*_pb2.py",
+    "proto/*_pb2_grpc.py",
+    "proto/*_pb2.pyi",
+]
+extraPaths = ["proto"]
+

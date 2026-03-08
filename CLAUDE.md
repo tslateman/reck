@@ -1,7 +1,6 @@
 # Reck
 
-See [AGENTS.md](AGENTS.md) for project context, architecture, component
-vocabulary, and conventions. Everything below is Claude-specific.
+See [AGENTS.md](AGENTS.md) for the project index and progressive disclosure rules. **Do not read all documentation files on startup.** Use the index to fetch context (`ARCHITECTURE.md`, `SAFETY.md`, etc.) only when your specific task requires it.
 
 ## Ecosystem Integration (Claude-specific)
 
