@@ -70,6 +70,66 @@ def test_forward_signal_accepted(watch_stub_process):
     assert response.accepted is True
 
 
+def test_anomaly_detection_return(watch_stub_process):
+    """ForwardSignal returns an AnomalyEvent after enough samples and a deviation."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.WatchServiceStub(channel)
+
+    source = "site1/area1/line1/cell1/test/detector"
+
+    # Send 20 samples to build a baseline (default min_samples=20)
+    for _ in range(20):
+        event = reck_pb2.SignalEvent(source=source, value=100.0)
+        ack = stub.ForwardSignal(event)
+        assert not ack.HasField("anomaly")
+
+    # Send anomalous value (100.0 mean, 0.0 stddev)
+    # Deviation will be large if stddev > 0.
+    # Wait, the stddev will be 0 if all are 100.0. Rust logic: if stddev > 0.
+    # Let's add some jitter.
+    for i in range(20):
+        val = 100.0 + (i % 2)  # stddev will be ~0.5
+        event = reck_pb2.SignalEvent(source=source, value=val)
+        ack = stub.ForwardSignal(event)
+
+    # Now send anomaly: 120.0 (40 sigma if stddev=0.5)
+    event = reck_pb2.SignalEvent(source=source, value=120.0)
+    ack = stub.ForwardSignal(event)
+    assert ack.HasField("anomaly")
+    assert ack.anomaly.source == source
+    assert ack.anomaly.value == 120.0
+    assert ack.anomaly.deviation_sigma > 3.0
+
+
+def test_watch_client_forward_integration(watch_stub_process):
+    """WatchClient properly forwards and parses AnomalyEvent."""
+    from reck.events import SignalEvent
+    from watch.client import WatchClient
+
+    _, port, _ = watch_stub_process
+    client = WatchClient(port=port)
+    source = "site1/area1/line1/cell1/test/client"
+
+    # Send 20 samples to build a baseline
+    for _ in range(20):
+        client.forward(SignalEvent(source=source, value=100.0, unit="C"))
+
+    # Jitter
+    for i in range(20):
+        client.forward(SignalEvent(source=source, value=100.0 + (i % 2), unit="C"))
+
+    # Anomaly
+    anomaly = client.forward(SignalEvent(source=source, value=120.0, unit="C"))
+    assert anomaly is not None
+    assert anomaly.source == source
+    assert anomaly.value == 120.0
+    assert anomaly.deviation_sigma > 3.0
+    client.close()
+
+
 def test_signal_event_schema_fields(watch_stub_process):
     """SignalEvent proto fields match reck/events.py SignalEvent fields."""
     import reck_pb2

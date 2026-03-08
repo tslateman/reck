@@ -78,14 +78,17 @@ async def run_loop(*, anomaly: bool = False) -> None:
         """Main processing loop: drain signal queue through the full chain."""
         while True:
             event = await signal_queue.get()
-            watch_client.forward(event.source, event.value, event.unit)
             confidence.apply_pending_decay()
 
             # Update baseline
             baselines.update_baseline(event.source, event.value)
 
-            # Detect
-            anomaly_event = detector.detect(event)
+            # Detect (primary: Rust hot-path, fallback: Python stub)
+            anomaly_event = watch_client.forward(event)
+
+            if anomaly_event is None:
+                anomaly_event = detector.detect(event)
+
             if anomaly_event is None:
                 continue
 

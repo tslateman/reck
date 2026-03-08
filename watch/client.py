@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import timezone
 from pathlib import Path
+
+from reck.events import AnomalyEvent, SignalEvent
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "proto"))
 
@@ -32,19 +35,56 @@ class WatchClient:
             logger.debug("grpcio not available; WatchClient disabled")
             self._available = False
 
-    def forward(self, source: str, value: float, unit: str = "") -> bool:
-        """Forward a raw signal to Rust. Returns True if accepted."""
+    def forward(self, event: SignalEvent) -> AnomalyEvent | None:
+        """Forward a raw signal to Rust. Returns AnomalyEvent if anomalous."""
         if not self._available:
-            return False
+            return None
         try:
+            import google.protobuf.timestamp_pb2
             import reck_pb2
 
-            event = reck_pb2.SignalEvent(source=source, value=value, unit=unit)
-            ack = self._stub.ForwardSignal(event, timeout=_TIMEOUT_S)
-            return bool(ack.accepted)
+            ts = google.protobuf.timestamp_pb2.Timestamp()
+            ts.FromDatetime(event.timestamp)
+
+            ctx = reck_pb2.EventContext(
+                recipe=event.context.recipe,
+                batch=event.context.batch,
+                operator_shift=event.context.operator_shift,
+            )
+
+            proto_event = reck_pb2.SignalEvent(
+                source=event.source,
+                value=event.value,
+                unit=event.unit,
+                timestamp=ts,
+                context=ctx,
+            )
+            ack = self._stub.ForwardSignal(proto_event, timeout=_TIMEOUT_S)
+
+            if not ack.HasField("anomaly"):
+                return None
+
+            # Convert proto AnomalyEvent to our internal dataclass
+            from reck.events import EventContext, Priority
+
+            p = ack.anomaly
+            return AnomalyEvent(
+                source=p.source,
+                value=p.value,
+                baseline_mean=p.baseline_mean,
+                baseline_stddev=p.baseline_stddev,
+                deviation_sigma=p.deviation_sigma,
+                priority=Priority(p.priority) if p.priority else Priority.LOW,
+                timestamp=p.timestamp.ToDatetime().replace(tzinfo=timezone.utc),
+                context=EventContext(
+                    recipe=p.context.recipe,
+                    batch=p.context.batch,
+                    operator_shift=p.context.operator_shift,
+                ),
+            )
         except Exception as exc:
             logger.debug("WatchClient.forward failed: %s", exc)
-            return False
+            return None
 
     def close(self) -> None:
         if self._available:

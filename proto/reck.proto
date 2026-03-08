@@ -110,4 +110,5 @@ service WatchService {
 
 message SignalAck {
   bool accepted = 1;
+  AnomalyEvent anomaly = 2;                  // set if anomalous
 }

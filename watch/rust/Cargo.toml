@@ -12,6 +12,8 @@ tonic = "0.11"
 prost = "0.12"
 prost-types = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+dashmap = "5.5"
+chrono = "0.4"
 
 [build-dependencies]
 tonic-build = "0.11"
