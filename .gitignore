@@ -29,3 +29,4 @@ proto/reck_pb2*.pyi
 # Simulation data
 sim/outputs/
 sim/logs/
+data/
