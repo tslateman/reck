@@ -21,6 +21,7 @@ from reck.events import (
     ActionLifecycle,
     ActionProposal,
     AnomalyEvent,
+    ConstraintResult,
     DecisionRecord,
     GateDecision,
     Priority,
@@ -241,8 +242,6 @@ def test_ledger_records_and_queries(archive: DecisionArchive) -> None:
         rule_name="test_rule",
         confidence=0.9,
     )
-    from reck.events import ConstraintResult
-
     constraint = ConstraintResult(action_id=proposal.action_id, verdict=Verdict.PASS)
     record = DecisionRecord(
         action_id=proposal.action_id,
@@ -287,4 +286,4 @@ def test_executor_stores_snapshot_and_reverts() -> None:
     assert proposal.action_id in executor.snapshots
 
     executor.revert(proposal.action_id, mock_publish)
-    assert published[-1] == (proposal.action_id, 200.0)
+    assert published[-1] == ("test/temp_sp/cmd", 200.0)

@@ -10,19 +10,10 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
 
 from reck.events import ActionProposal, AnomalyEvent, ConstraintResult
-
-
-def _serialize(obj: object) -> object:
-    """JSON serializer for dataclasses containing enums and datetimes."""
-    if isinstance(obj, Enum):
-        return obj.name
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    raise TypeError(f"Cannot serialize {type(obj)}")
+from reck.serialize import default_serializer
 
 
 class EscalationHandler:
@@ -49,4 +40,4 @@ class EscalationHandler:
         }
         path = self._data_dir / "escalations.jsonl"
         with open(path, "a") as f:
-            f.write(json.dumps(record, default=_serialize) + "\n")
+            f.write(json.dumps(record, default=default_serializer) + "\n")

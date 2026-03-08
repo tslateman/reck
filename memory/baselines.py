@@ -23,6 +23,7 @@ class BaselineStore:
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path))
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._create_tables()
 
     def _create_tables(self) -> None:
