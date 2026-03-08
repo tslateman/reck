@@ -1,0 +1,11 @@
+constraints:
+  - parameter: "*/temperature_sp"
+    min: 160.0
+    max: 230.0
+    unit: celsius
+    rate_of_change: 10.0
+  - parameter: "*/pressure_sp"
+    min: 1.0
+    max: 10.0
+    unit: bar
+    rate_of_change: 2.0

@@ -12,6 +12,8 @@ Manufacturing lines produce a signal stream (sensor data, logs, metrics)
 alongside the product stream. Traditional automation monitors signals with
 static rules. Reck reasons about them.
 
+Beyond manufacturing, Reck proves the **Reactive Dispatch Pattern** for the entire ecosystem: an event-driven loop that detects anomalies and dispatches specialized agent fleets (via Praxis and Shipyard) when autonomous fixes are unavailable.
+
 The reasoning loop: **Detect -> Triage -> Reason -> Simulate -> Execute -> Verify -> Learn**
 
 ## Architecture
@@ -76,14 +78,19 @@ Names describe function. The reasoning flow reads: **watch -> triage -> rules/re
 
 ```
 reck/
-├── watch/           # Signal ingestion + anomaly detection (Rust)
+├── watch/           # Signal ingestion + anomaly detection (Python -> Rust)
+├── triage/          # Anomaly triage + prioritization (Python)
 ├── memory/          # Pattern memory + baseline management (Python)
 ├── reason/          # Causal inference engine (Python)
 ├── counsel/         # LLM reasoning + simulation (Python)
-├── act/             # Action execution + OPC-UA client (Rust)
-├── guard/           # Constraint checker + safety (Rust)
+├── act/             # Action execution + OPC-UA client (Python -> Rust)
+├── guard/           # Constraint checker + safety (Python -> Rust)
+├── gate/            # Action arbiter, go/no-go gate (Python)
+├── monitor/         # Post-action KPI watchers (Python -> Rust)
+├── breaker/         # Cascade protection circuit breaker (Python)
 ├── escalate/        # Escalation protocol (Python)
 ├── ledger/          # Decision archive + outcome log
+├── proto/           # gRPC service definitions (protobuf)
 ├── rules/           # Rule definitions (YAML)
 ├── tests/           # Integration tests
 ├── sim/             # Simulated production line for development
@@ -92,7 +99,11 @@ reck/
 
 ## Language Conventions
 
-### Rust (hot path: watch, act, guard)
+Initial implementation is Python for all components. The Rust hot path arrives
+after algorithms stabilize. A gRPC boundary (`proto/reck.proto`) exists from day
+one to enable the port.
+
+### Rust (hot path target: watch, act, guard)
 
 - Tokio async runtime
 - No panics in production code; use `Result<T, E>` everywhere
@@ -128,13 +139,13 @@ uv run pytest                # Unit tests
 uv run ruff check            # Lint
 
 # Simulation
-make sim                     # Start simulated production line
-make sim-anomaly             # Inject an anomaly into simulation
+just sim                     # Start simulated production line
+just sim-anomaly             # Inject an anomaly into simulation
 
 # Full system
-make dev                     # Start all components (Docker Compose)
-make test                    # Run full test suite
-make check                   # Lint + format + type-check (all languages)
+just dev                     # Start all components (Docker Compose)
+just test                    # Run full test suite
+just check                   # Lint + format + type-check (all languages)
 ```
 
 ## Key Design Decisions

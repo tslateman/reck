@@ -1,0 +1,9 @@
+rules:
+  - name: extruder_temp_high
+    condition:
+      signal_pattern: "*/extruder/temperature"
+      threshold: 215.0
+    action:
+      target_pattern: "site1/area1/line1/cell1/extruder/temperature_sp"
+      delta: -5.0
+    confidence: 0.95

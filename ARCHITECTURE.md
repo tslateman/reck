@@ -49,22 +49,26 @@ Reck uses a hybrid model: event stream as primary, causal graph built incrementa
 
 ### Event Stream
 
-Events are structured messages:
+Events are protobuf messages defined in `proto/reck.proto`:
 
-```json
-{
-  "source": "site1/area2/line3/cell4/temp_sensor_01",
-  "timestamp": "2026-03-07T14:32:01.003Z",
-  "value": 187.3,
-  "unit": "celsius",
-  "state_transition": "normal -> warning",
-  "context": {
-    "recipe": "ABS-2024-R3",
-    "batch": "B20260307-042",
-    "operator_shift": "B"
-  }
+```protobuf
+message SignalEvent {
+  string source = 1;           // ISA-95 path: site/area/line/cell/device/signal
+  google.protobuf.Timestamp timestamp = 2;
+  double value = 3;
+  string unit = 4;
+  string state_transition = 5; // e.g. "normal -> warning"
+  EventContext context = 6;
+}
+
+message EventContext {
+  string recipe = 1;
+  string batch = 2;
+  string operator_shift = 3;
 }
 ```
+
+Each `SignalEvent` carries the ISA-95 source path, a measured value with unit, and an optional state transition. `EventContext` attaches production metadata -- recipe, batch, and operator shift -- so downstream reasoning can correlate signals with process conditions.
 
 ### Causal Graph
 
@@ -180,6 +184,8 @@ Bootstrapping Reck on a new production line:
 | Edge connectors | Java     | JVM     | PLC4X protocol drivers. Java only where PLC4X requires it; no application logic in Java.            |
 
 Rust and Python communicate via gRPC. The boundary sits between signal ingestion (Rust) and reasoning (Python).
+
+Initial implementation is Python for all components. The Rust hot path arrives after algorithms stabilize. A gRPC boundary (`proto/reck.proto`) exists from day one to enable the port.
 
 ## Tech Stack
 

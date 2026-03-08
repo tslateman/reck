@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package reck;
+
+import "google/protobuf/timestamp.proto";
+
+// Signal event from the production line.
+message SignalEvent {
+  string source = 1;                         // ISA-95 path: site/area/line/cell/device/signal
+  google.protobuf.Timestamp timestamp = 2;
+  double value = 3;
+  string unit = 4;
+  string state_transition = 5;               // e.g. "normal -> warning"
+  EventContext context = 6;
+}
+
+message EventContext {
+  string recipe = 1;
+  string batch = 2;
+  string operator_shift = 3;
+}
+
+// Anomaly detected by watch, enriched by triage.
+message AnomalyEvent {
+  string source = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  double value = 3;
+  double baseline_mean = 4;
+  double baseline_stddev = 5;
+  double deviation_sigma = 6;               // how many sigma from baseline
+  Priority priority = 7;
+  EventContext context = 8;
+}
+
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  LOW = 1;
+  MEDIUM = 2;
+  HIGH = 3;
+}
+
+// Proposed action from rules engine.
+message ActionProposal {
+  string action_id = 1;
+  string source = 2;                         // anomaly source
+  string target = 3;                         // setpoint to adjust
+  double delta = 4;                          // adjustment amount
+  double previous_value = 5;
+  double proposed_value = 6;
+  string rule_name = 7;
+  double confidence = 8;
+  ActionLifecycle lifecycle = 9;
+  string action_chain_id = 10;               // links cascading actions
+  int32 rollback_window_s = 11;
+}
+
+enum ActionLifecycle {
+  ACTION_UNSPECIFIED = 0;
+  PROPOSED = 1;
+  VALIDATED = 2;
+  EXECUTING = 3;
+  MONITORING = 4;
+  CONFIRMED = 5;
+  REVERTED = 6;
+  FAILED = 7;
+}
+
+// Constraint check result from guard.
+message ConstraintResult {
+  string action_id = 1;
+  Verdict verdict = 2;
+  string violated_constraint = 3;            // empty if PASS
+  string reason = 4;
+}
+
+enum Verdict {
+  VERDICT_UNSPECIFIED = 0;
+  PASS = 1;
+  FAIL = 2;
+  ESCALATE = 3;
+}
+
+// Decision record for ledger.
+message DecisionRecord {
+  string action_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  AnomalyEvent anomaly = 3;
+  ActionProposal proposal = 4;
+  ConstraintResult constraint_check = 5;
+  GateDecision gate_decision = 6;
+  ActionLifecycle outcome = 7;
+  string action_chain_id = 8;
+  string escalation_reason = 9;             // empty if not escalated
+}
+
+enum GateDecision {
+  GATE_UNSPECIFIED = 0;
+  GO = 1;
+  NO_GO = 2;
+  GATE_ESCALATE = 3;
+}
+
+// gRPC service: Rust watch stub forwards events to Python reasoning path.
+service WatchService {
+  rpc ForwardSignal (SignalEvent) returns (SignalAck);
+}
+
+message SignalAck {
+  bool accepted = 1;
+}

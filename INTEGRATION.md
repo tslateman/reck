@@ -9,7 +9,18 @@ Reck operates standalone but integrates with the broader ecosystem for memory, a
 | Lore     | decisions.jsonl, patterns.yaml, failures.jsonl | decisions, patterns, failures, observations | CLI subprocess    | JSONL, YAML         |
 | Council  | Advisory responses                             | Escalation requests                         | MCP tools         | Structured prompts  |
 | Shipyard | Fleet status                                   | Agent registration                          | Fleet database    | SQL                 |
+| Praxis   | (via Lore)                                     | Trigger payloads                            | `praxis emit`     | Blueprint Inbox     |
 | Geordi   | (future)                                       | Metrics, decisions                          | Grafana (interim) | TimescaleDB queries |
+
+## Reck as Trigger Router
+
+Reck's detection loop (`watch` -> `triage` -> `rules`) serves as the ecosystem's specialized event-driven trigger system for manufacturing signals. It proves the **Reactive Dispatch Pattern**:
+
+1.  **Escalation to Shipyard**: When Reck detects an anomaly it cannot fix autonomously, it uses `praxis emit --from-triggers` to spawn a diagnostic agent fleet in Shipyard (via Blueprint inbox) to investigate.
+2.  **Feeding Praxis**: Anomaly decisions written to Lore become visible in `praxis status` and can trigger further downstream automation.
+3.  **Consuming Shipyard Agents**: Reck's Tier 3 (`counsel`) can be implemented as a Shipyard-managed agent, moving LLM reasoning out of the local process.
+
+This pattern generalizes Reck's utility beyond manufacturing to any event-driven domain (webhooks, CVEs, crons).
 
 ## Write to Lore
 
