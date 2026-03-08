@@ -91,6 +91,9 @@ message DecisionRecord {
   ActionLifecycle outcome = 7;
   string action_chain_id = 8;
   string escalation_reason = 9;             // empty if not escalated
+  double kpi_before = 10;
+  double kpi_after = 11;
+  int32 monitoring_duration_s = 12;
 }
 
 enum GateDecision {

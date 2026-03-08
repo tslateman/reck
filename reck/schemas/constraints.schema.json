@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["constraints"],
+  "properties": {
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["parameter", "min", "max", "unit", "rate_of_change"],
+        "additionalProperties": false,
+        "properties": {
+          "parameter": { "type": "string", "minLength": 1 },
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "unit": { "type": "string" },
+          "rate_of_change": { "type": "number", "minimum": 0 },
+          "requires_approval": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

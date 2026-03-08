@@ -6,13 +6,22 @@ and produces ActionProposals when thresholds are exceeded.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
+import jsonschema
 import yaml
 
 from reck.events import ActionProposal, AnomalyEvent
+
+_SCHEMA_DIR = Path(__file__).resolve().parent.parent / "reck" / "schemas"
+
+
+def _validate_rules(data: object) -> None:
+    schema = json.loads((_SCHEMA_DIR / "rules.schema.json").read_text())
+    jsonschema.validate(data, schema)
 
 
 @dataclass
@@ -45,6 +54,7 @@ class RuleEngine:
     def _load(self, path: Path) -> None:
         with path.open() as f:
             data = yaml.safe_load(f)
+        _validate_rules(data)
         for entry in data.get("rules", []):
             cond = entry["condition"]
             act = entry["action"]

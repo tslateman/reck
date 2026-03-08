@@ -6,13 +6,26 @@ and rate-of-change limits. Returns PASS, FAIL, or ESCALATE verdicts.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
+import jsonschema
 import yaml
 
 from reck.events import ActionProposal, ConstraintResult, Verdict
+
+_SCHEMA_DIR = Path(__file__).resolve().parent.parent / "reck" / "schemas"
+
+
+def _validate_constraints(data: object) -> None:
+    schema = json.loads((_SCHEMA_DIR / "constraints.schema.json").read_text())
+    jsonschema.validate(data, schema)
+    if isinstance(data, dict):
+        for c in data.get("constraints", []):
+            if c.get("min", 0) >= c.get("max", 0):
+                raise ValueError(f"Constraint '{c.get('parameter', '?')}': min >= max")
 
 
 @dataclass
@@ -35,6 +48,7 @@ class ConstraintChecker:
     def _load(self, path: Path) -> None:
         with path.open() as f:
             data = yaml.safe_load(f)
+        _validate_constraints(data)
         for entry in data.get("constraints", []):
             self.constraints.append(
                 Constraint(
