@@ -1,4 +1,4 @@
-# Reck — Autonomous Manufacturing Intelligence
+# Reck -- Autonomous Manufacturing Intelligence
 
 Autonomous reasoning system for manufacturing and factory lines. Reck detects abnormalities in production, generates adaptive solutions, and executes fixes without human intervention.
 
@@ -14,16 +14,7 @@ Manufacturing lines produce two streams: the product stream and a _signal stream
 - **Execute**: Apply the fix and monitor for side effects
 - **Learn**: Record the decision and outcome for future reference
 
-This is **Jidoka's next generation** — not just stopping the line on defect, but understanding and fixing the defect autonomously.
-
-## Naming
-
-The name Reck (archaic: to heed, to consider before acting) embodies the system's dual nature:
-
-- **Seeks wisdom continuously** (generative: explores possibility space)
-- **Acts decisively once informed** (convergent: commits to solution)
-- **One-eyed vision** (focused insight, like Geordi seeing what others miss)
-- Problem-solver through sacrifice and cunning, not brute force
+This is **Jidoka's next generation** -- not just stopping the line on defect, but understanding and fixing the defect autonomously.
 
 ## Position in the Stack
 
@@ -38,32 +29,12 @@ See [INTEGRATION.md](INTEGRATION.md) for the full contract with each ecosystem p
 
 ## Documentation
 
-| Document                           | Purpose                                                 |
-| ---------------------------------- | ------------------------------------------------------- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Three-tier reasoning, signal ingestion, tech stack      |
-| [NAMING.md](NAMING.md)             | Mythology-to-architecture mapping (canonical reference) |
-| [INTEGRATION.md](INTEGRATION.md)   | Contracts with Lore, Council, Shipyard, Geordi          |
-| [SAFETY.md](SAFETY.md)             | Fenrir's Chains: what Reck can and cannot do            |
-| [CONCEPT.md](CONCEPT.md)           | Original design spaces and problem statement            |
-
-## Component Naming
-
-Reck components take names from Norse mythology. Each name maps to the mythological figure whose role matches the component's function. Key mappings:
-
-| Component          | Role                                           |
-| ------------------ | ---------------------------------------------- |
-| Huginn / Muninn    | Signal ingestion and state memory (the ravens) |
-| Valkyries          | Anomaly triage and prioritization              |
-| Norns              | Causal inference engine (Tier 2)               |
-| Seidr              | LLM reasoning and simulation (Tier 3)          |
-| Runes              | Tier 1 rule definitions                        |
-| Gungnir            | Action execution (OPC-UA write path)           |
-| Fenrir             | Constraint checker, safety limits              |
-| Tyr                | Action arbiter (go/no-go)                      |
-| Bifrost / Heimdall | Escalation protocol to human operators         |
-| Jormungandr        | Cascade protection circuit breaker             |
-
-See [NAMING.md](NAMING.md) for the full 18-component mapping and reasoning flow.
+| Document                           | Purpose                                            |
+| ---------------------------------- | -------------------------------------------------- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Three-tier reasoning, signal ingestion, tech stack |
+| [INTEGRATION.md](INTEGRATION.md)   | Contracts with Lore, Council, Shipyard, Geordi     |
+| [SAFETY.md](SAFETY.md)             | Safety boundaries: what Reck can and cannot do     |
+| [CONCEPT.md](CONCEPT.md)           | Original design spaces and problem statement       |
 
 ## Core Questions
 

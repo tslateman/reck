@@ -86,7 +86,7 @@ Registered agents appear in `fl status` output. Shipyard monitors heartbeats and
 
 ## Council Escalation
 
-Reck routes escalations through Bifrost (the escalation protocol) to specific Council seats:
+Reck routes escalations through the escalation protocol to specific Council seats:
 
 ### Marshal (Safety Decisions)
 
@@ -104,11 +104,11 @@ When Tier 2 produces conflicting causal hypotheses:
 - **Wait time**: Up to 10 minutes for Critic response
 - **Interim action**: Apply the most conservative hypothesis (lowest risk of harm)
 
-### Bifrost Protocol
+### Escalation Protocol
 
 Every escalation follows this structure:
 
-1. **Package**: Heimdall assembles context (signal snapshot, causal subgraph, candidate actions, confidence scores, risk assessment)
+1. **Package**: Assemble context (signal snapshot, causal subgraph, candidate actions, confidence scores, risk assessment)
 2. **Send**: Structured message to the appropriate Council seat via MCP
 3. **Wait**: Timer starts; Reck continues monitoring but takes no autonomous action on the escalated anomaly
 4. **Timeout**: If no response within the wait window, apply the interim action and log the timeout

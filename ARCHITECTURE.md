@@ -30,8 +30,8 @@ PLC4X provides multi-protocol connectivity at the edge:
 ### Data Flow
 
 ```
-PLC/Sensors → PLC4X Connectors → EMQX (MQTT UNS) → Redpanda → Flink → TimescaleDB
-                                       ↓
+PLC/Sensors -> PLC4X Connectors -> EMQX (MQTT UNS) -> Redpanda -> Flink -> TimescaleDB
+                                       |
                                   Reck Reasoning
 ```
 
@@ -57,7 +57,7 @@ Events are structured messages:
   "timestamp": "2026-03-07T14:32:01.003Z",
   "value": 187.3,
   "unit": "celsius",
-  "state_transition": "normal → warning",
+  "state_transition": "normal -> warning",
   "context": {
     "recipe": "ABS-2024-R3",
     "batch": "B20260307-042",
@@ -77,7 +77,7 @@ Nodes represent sensors, equipment, process parameters, and quality metrics. Edg
 
 ## Reasoning Engine
 
-### Tier 1: Rule Engine (Huginn)
+### Tier 1: Rule Engine (watch)
 
 Hot-reloadable YAML rules compiled to Rust pattern matchers at load time.
 
@@ -97,7 +97,7 @@ Hot-reloadable YAML rules compiled to Rust pattern matchers at load time.
 
 Rules live in version-controlled YAML files. A file watcher detects changes and recompiles the rule set without restart. The Rust runtime evaluates all active rules against each incoming event in parallel.
 
-### Tier 2: Causal Inference (Norns)
+### Tier 2: Causal Inference (reason)
 
 When no Tier 1 rule matches, the anomaly enters the causal inference pipeline:
 
@@ -108,7 +108,7 @@ When no Tier 1 rule matches, the anomaly enters the causal inference pipeline:
 
 Tier 2 produces a ranked list of candidate interventions with confidence intervals.
 
-### Tier 3: LLM Reasoning (Seidr)
+### Tier 3: LLM Reasoning (counsel)
 
 For low-confidence Tier 2 results or novel patterns, a local Ollama instance provides contextual reasoning:
 
@@ -127,14 +127,14 @@ Reck operates between Level 2 (supervisory control) and Level 3 (MES). It reads 
 Every action passes through five stages:
 
 ```
-Constraint Checker → Simulation Shadow → Action Arbiter → OPC-UA Write → Monitor
+Constraint Checker -> Simulation Shadow -> Action Arbiter -> OPC-UA Write -> Monitor
 ```
 
-1. **Constraint Checker (Fenrir)**: Validates the proposed action against physical limits, rate-of-change limits, and dependency rules
-2. **Simulation Shadow (Seidr)**: Runs the proposed action through a digital twin or simplified model to predict outcomes
-3. **Action Arbiter (Tyr)**: Makes the final go/no-go decision based on constraint check results, simulation output, and confidence scores
-4. **OPC-UA Write (Gungnir)**: Executes the setpoint change via OPC-UA
-5. **Monitor (Geri & Freki)**: Watches KPIs for 30-300 seconds after execution
+1. **Constraint Checker (guard)**: Validates the proposed action against physical limits, rate-of-change limits, and dependency rules
+2. **Simulation Shadow (counsel)**: Runs the proposed action through a digital twin or simplified model to predict outcomes
+3. **Action Arbiter (gate)**: Makes the final go/no-go decision based on constraint check results, simulation output, and confidence scores
+4. **OPC-UA Write (act)**: Executes the setpoint change via OPC-UA
+5. **Monitor (monitor)**: Watches KPIs for 30-300 seconds after execution
 
 ### Reversibility
 
@@ -157,7 +157,7 @@ Causal discovery runs on the last 24 hours of data. The PC algorithm identifies 
 Human-reviewed rule promotion follows a strict pipeline:
 
 ```
-Observation → Hypothesis → Tested → Confirmed → Rule
+Observation -> Hypothesis -> Tested -> Confirmed -> Rule
 ```
 
 A human gate separates "Confirmed" from "Rule." Only human-approved patterns promote to Tier 1. This prevents the rule engine from accumulating untested heuristics.
