@@ -50,11 +50,7 @@ class ActionMonitor:
             latest = get_current_value()
 
         final_distance = abs(latest - proposal.proposed_value)
-        outcome = (
-            ActionLifecycle.REVERTED
-            if final_distance > initial_distance
-            else ActionLifecycle.CONFIRMED
-        )
+        outcome = ActionLifecycle.REVERTED if final_distance > initial_distance else ActionLifecycle.CONFIRMED
         return MonitorResult(
             outcome=outcome,
             kpi_before=kpi_before,

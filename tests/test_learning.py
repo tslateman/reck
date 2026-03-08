@@ -82,9 +82,7 @@ def test_gate_escalates_on_low_confidence() -> None:
         action_id=proposal.action_id,
         verdict=Verdict.PASS,
     )
-    decision, reason = gatekeeper.decide(
-        proposal, constraint, has_precedent=True, rule_confidence=0.2
-    )
+    decision, reason = gatekeeper.decide(proposal, constraint, has_precedent=True, rule_confidence=0.2)
     assert decision == GateDecision.ESCALATE
     assert "low confidence" in reason
 

@@ -33,9 +33,7 @@ def checker() -> ConstraintChecker:
 
 
 @pytest.mark.parametrize("proposed", [0.0, 100.0, 159.9, -999.0])
-def test_guard_always_rejects_below_min(
-    checker: ConstraintChecker, proposed: float
-) -> None:
+def test_guard_always_rejects_below_min(checker: ConstraintChecker, proposed: float) -> None:
     """Guard rejects any value below the temperature_sp minimum of 160."""
     proposal = ActionProposal(
         source="s",
@@ -50,9 +48,7 @@ def test_guard_always_rejects_below_min(
 
 
 @pytest.mark.parametrize("proposed", [230.1, 500.0, 1e6])
-def test_guard_always_rejects_above_max(
-    checker: ConstraintChecker, proposed: float
-) -> None:
+def test_guard_always_rejects_above_max(checker: ConstraintChecker, proposed: float) -> None:
     """Guard rejects any value above the temperature_sp maximum of 230."""
     proposal = ActionProposal(
         source="s",
@@ -83,9 +79,7 @@ def test_gate_never_go_when_guard_fails(checker: ConstraintChecker) -> None:
     )
     constraint = checker.validate(proposal)
     assert constraint.verdict == Verdict.FAIL
-    decision, _ = gatekeeper.decide(
-        proposal, constraint, has_precedent=True, rule_confidence=1.0
-    )
+    decision, _ = gatekeeper.decide(proposal, constraint, has_precedent=True, rule_confidence=1.0)
     assert decision != GateDecision.GO
 
 
@@ -105,9 +99,7 @@ def test_gate_never_go_without_precedent() -> None:
         confidence=0.9,
     )
     constraint = ConstraintResult(action_id=proposal.action_id, verdict=Verdict.PASS)
-    decision, _ = gatekeeper.decide(
-        proposal, constraint, has_precedent=False, rule_confidence=1.0
-    )
+    decision, _ = gatekeeper.decide(proposal, constraint, has_precedent=False, rule_confidence=1.0)
     assert decision != GateDecision.GO
 
 
@@ -128,9 +120,7 @@ def test_gate_never_go_below_confidence_threshold(confidence: float) -> None:
         confidence=confidence,
     )
     constraint = ConstraintResult(action_id=proposal.action_id, verdict=Verdict.PASS)
-    decision, _ = gatekeeper.decide(
-        proposal, constraint, has_precedent=True, rule_confidence=confidence
-    )
+    decision, _ = gatekeeper.decide(proposal, constraint, has_precedent=True, rule_confidence=confidence)
     assert decision != GateDecision.GO
 
 

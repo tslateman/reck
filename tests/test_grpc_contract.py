@@ -139,9 +139,7 @@ def test_signal_event_schema_fields(watch_stub_process):
     proto_event = reck_pb2.SignalEvent()
     proto_fields = {f.name for f in proto_event.DESCRIPTOR.fields}
     expected = {"source", "value", "unit", "state_transition", "context"}
-    assert expected.issubset(proto_fields), (
-        f"Proto missing fields: {expected - proto_fields}"
-    )
+    assert expected.issubset(proto_fields), f"Proto missing fields: {expected - proto_fields}"
 
 
 def test_action_lifecycle_values_match(watch_stub_process):
@@ -152,6 +150,4 @@ def test_action_lifecycle_values_match(watch_stub_process):
 
     proto_names = {v.name for v in reck_pb2.ActionLifecycle.DESCRIPTOR.values}
     for member in ActionLifecycle:
-        assert member.name in proto_names, (
-            f"{member.name} missing from proto ActionLifecycle"
-        )
+        assert member.name in proto_names, f"{member.name} missing from proto ActionLifecycle"

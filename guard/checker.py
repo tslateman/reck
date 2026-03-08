@@ -73,8 +73,7 @@ class ConstraintChecker:
                     verdict=Verdict.FAIL,
                     violated_constraint=constraint.parameter,
                     reason=(
-                        f"proposed value {proposal.proposed_value} "
-                        f"below minimum {constraint.min} {constraint.unit}"
+                        f"proposed value {proposal.proposed_value} below minimum {constraint.min} {constraint.unit}"
                     ),
                 )
 
@@ -84,8 +83,7 @@ class ConstraintChecker:
                     verdict=Verdict.FAIL,
                     violated_constraint=constraint.parameter,
                     reason=(
-                        f"proposed value {proposal.proposed_value} "
-                        f"exceeds maximum {constraint.max} {constraint.unit}"
+                        f"proposed value {proposal.proposed_value} exceeds maximum {constraint.max} {constraint.unit}"
                     ),
                 )
 
@@ -94,10 +92,7 @@ class ConstraintChecker:
                     action_id=proposal.action_id,
                     verdict=Verdict.FAIL,
                     violated_constraint=constraint.parameter,
-                    reason=(
-                        f"delta {abs(proposal.delta)} exceeds "
-                        f"rate-of-change limit {constraint.rate_of_change}"
-                    ),
+                    reason=(f"delta {abs(proposal.delta)} exceeds rate-of-change limit {constraint.rate_of_change}"),
                 )
 
             if constraint.requires_approval:

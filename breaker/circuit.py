@@ -29,9 +29,7 @@ class CircuitBreaker:
         caused_new_anomaly: bool,
     ) -> None:
         """Append an outcome for a production line."""
-        self._history.setdefault(line, []).append(
-            _Outcome(action_chain_id, caused_new_anomaly)
-        )
+        self._history.setdefault(line, []).append(_Outcome(action_chain_id, caused_new_anomaly))
 
     def tripped(self, line: str) -> bool:
         """True if the last 3 consecutive outcomes all caused new anomalies."""

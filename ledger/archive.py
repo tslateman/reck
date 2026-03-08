@@ -35,8 +35,7 @@ class DecisionArchive:
             rule = decision.proposal.rule_name
             src = decision.proposal.source
             write_decision(
-                f"Reck applied {rule} on {src}: "
-                f"delta {decision.proposal.delta:+.1f} -> CONFIRMED",
+                f"Reck applied {rule} on {src}: delta {decision.proposal.delta:+.1f} -> CONFIRMED",
                 tags=f"reck,decision,{rule}",
             )
         elif decision.outcome.name == "REVERTED":
@@ -68,7 +67,5 @@ class DecisionArchive:
             for line in f:
                 record = json.loads(line)
                 proposal = record.get("proposal", {})
-                self._precedents.add(
-                    (proposal.get("source", ""), proposal.get("rule_name", ""))
-                )
+                self._precedents.add((proposal.get("source", ""), proposal.get("rule_name", "")))
         return (source, rule_name) in self._precedents

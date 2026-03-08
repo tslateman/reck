@@ -11,11 +11,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-_UPSERT = (
-    "INSERT OR IGNORE INTO rule_confidence"
-    " (rule_name, alpha, beta, updated_at)"
-    " VALUES (?, 1.0, 1.0, ?)"
-)
+_UPSERT = "INSERT OR IGNORE INTO rule_confidence (rule_name, alpha, beta, updated_at) VALUES (?, 1.0, 1.0, ?)"
 
 
 class RuleConfidence:
@@ -54,16 +50,12 @@ class RuleConfidence:
         self._conn.execute(_UPSERT, (rule_name, now))
         if success:
             self._conn.execute(
-                "UPDATE rule_confidence"
-                " SET alpha = alpha + 1, updated_at = ?"
-                " WHERE rule_name = ?",
+                "UPDATE rule_confidence SET alpha = alpha + 1, updated_at = ? WHERE rule_name = ?",
                 (now, rule_name),
             )
         else:
             self._conn.execute(
-                "UPDATE rule_confidence"
-                " SET beta = beta + 1, updated_at = ?"
-                " WHERE rule_name = ?",
+                "UPDATE rule_confidence SET beta = beta + 1, updated_at = ? WHERE rule_name = ?",
                 (now, rule_name),
             )
         self._conn.commit()
@@ -94,9 +86,7 @@ class RuleConfidence:
         new_beta = 1.0 + (beta - 1.0) * factor
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
-            "UPDATE rule_confidence"
-            " SET alpha = ?, beta = ?, updated_at = ?"
-            " WHERE rule_name = ?",
+            "UPDATE rule_confidence SET alpha = ?, beta = ?, updated_at = ? WHERE rule_name = ?",
             (new_alpha, new_beta, now, rule_name),
         )
         self._conn.commit()
@@ -107,9 +97,7 @@ class RuleConfidence:
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(_UPSERT, (rule_name, now))
         self._conn.execute(
-            "UPDATE rule_confidence"
-            " SET last_fired = ?, updated_at = ?"
-            " WHERE rule_name = ?",
+            "UPDATE rule_confidence SET last_fired = ?, updated_at = ? WHERE rule_name = ?",
             (now, now, rule_name),
         )
         self._conn.commit()
@@ -118,9 +106,7 @@ class RuleConfidence:
         """Apply decay to all rules not fired in over 1 day."""
         now = datetime.now(timezone.utc)
         rows = self._conn.execute(
-            "SELECT rule_name, last_fired"
-            " FROM rule_confidence"
-            " WHERE last_fired IS NOT NULL"
+            "SELECT rule_name, last_fired FROM rule_confidence WHERE last_fired IS NOT NULL"
         ).fetchall()
         for rule_name, last_fired_str in rows:
             last_fired = datetime.fromisoformat(last_fired_str)

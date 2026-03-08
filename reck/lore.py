@@ -33,9 +33,7 @@ def write_decision(text: str, tags: str = "reck,decision") -> None:
 
 def write_failure(error_type: str, text: str, tags: str = "reck,failure") -> None:
     """Record a failed/reverted action to Lore."""
-    _spawn(
-        [str(LORE_BIN), "fail", error_type, text, "--project", "reck", "--tags", tags]
-    )
+    _spawn([str(LORE_BIN), "fail", error_type, text, "--project", "reck", "--tags", tags])
 
 
 def emit_escalation(source: str, reason: str, rule_name: str = "") -> None:
