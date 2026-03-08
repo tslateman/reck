@@ -16,10 +16,15 @@ venv/
 dist/
 build/
 *.egg-info/
+watch/rust/target/
 
 # Logs
 *.log
 logs/
+
+# Generated proto stubs
+proto/reck_pb2*.py
+proto/reck_pb2*.pyi
 
 # Simulation data
 sim/outputs/

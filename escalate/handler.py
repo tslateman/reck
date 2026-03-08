@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from reck.events import ActionProposal, AnomalyEvent, ConstraintResult
+from reck.lore import emit_escalation
 from reck.serialize import default_serializer
 
 
@@ -41,3 +42,8 @@ class EscalationHandler:
         path = self._data_dir / "escalations.jsonl"
         with open(path, "a") as f:
             f.write(json.dumps(record, default=default_serializer) + "\n")
+        emit_escalation(
+            source=anomaly.source,
+            reason=reason,
+            rule_name=proposal.rule_name if proposal else "",
+        )

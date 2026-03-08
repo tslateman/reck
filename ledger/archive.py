@@ -12,6 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from reck.events import DecisionRecord
+from reck.lore import write_decision, write_failure
 from reck.serialize import default_serializer
 
 
@@ -29,6 +30,24 @@ class DecisionArchive:
         with open(self._path, "a") as f:
             f.write(json.dumps(asdict(decision), default=default_serializer) + "\n")
         self._precedents.add((decision.proposal.source, decision.proposal.rule_name))
+
+        if decision.outcome.name == "CONFIRMED":
+            rule = decision.proposal.rule_name
+            src = decision.proposal.source
+            write_decision(
+                f"Reck applied {rule} on {src}: "
+                f"delta {decision.proposal.delta:+.1f} -> CONFIRMED",
+                tags=f"reck,decision,{rule}",
+            )
+        elif decision.outcome.name == "REVERTED":
+            rule = decision.proposal.rule_name
+            src = decision.proposal.source
+            delta = decision.kpi_after - decision.kpi_before
+            write_failure(
+                "ActionReverted",
+                f"Reck reverted {rule} on {src}: KPI delta {delta:+.2f}",
+                tags=f"reck,failure,{rule}",
+            )
 
     def query(self, last_n: int = 10) -> list[dict]:
         """Return the last N decision records."""

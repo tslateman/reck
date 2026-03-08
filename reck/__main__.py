@@ -26,6 +26,7 @@ from reck.events import (
     GateDecision,
     SignalEvent,
 )
+from reck.lore import emit_escalation
 from rules.confidence import RuleConfidence
 from rules.engine import RuleEngine
 from sim.plant import Plant
@@ -102,6 +103,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 escalation.escalate(
                     anomaly_event, None, None, "circuit breaker tripped"
                 )
+                emit_escalation(source=LINE_ID, reason="circuit breaker tripped")
                 continue
 
             # Rules

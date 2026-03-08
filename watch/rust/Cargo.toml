@@ -1,0 +1,17 @@
+[package]
+name = "reck-watch"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "reck-watch"
+path = "src/main.rs"
+
+[dependencies]
+tonic = "0.11"
+prost = "0.12"
+prost-types = "0.12"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+tonic-build = "0.11"

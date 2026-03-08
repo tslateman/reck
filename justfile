@@ -43,6 +43,18 @@ proto:
         --pyi_out=proto \
         proto/reck.proto
 
+# Build Rust watch gRPC stub
+build-watch:
+    cd watch/rust && cargo build 2>&1
+
+# Run Rust watch gRPC stub (set WATCH_PORT env var to override 50051)
+watch-stub:
+    cd watch/rust && cargo run
+
+# Run integration tests including gRPC contract tests (requires just build-watch first)
+test-integration:
+    uv run pytest --run-integration
+
 # Show recent decisions
 log *ARGS:
     uv run reck log {{ARGS}}
