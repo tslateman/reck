@@ -3,7 +3,7 @@
 Turn Reck from a static rule executor into a system that accumulates knowledge
 from its own decisions.
 
-**Status:** Proposed
+**Status:** Complete
 
 ## Problem
 
@@ -269,3 +269,4 @@ This plan produces three artifacts that downstream plans consume:
 | Date       | Event                                                              |
 | ---------- | ------------------------------------------------------------------ |
 | 2026-03-07 | Drafted from 005 candidate analysis, recommended as next after 004 |
+| 2026-03-08 | Full implementation: Bayesian updates, Pattern Memory, Promotion CLI |

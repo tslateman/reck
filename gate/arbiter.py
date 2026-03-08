@@ -21,6 +21,7 @@ class GateKeeper:
         constraint: ConstraintResult,
         has_precedent: bool,
         rule_confidence: float = 0.5,
+        pattern_history: dict | None = None,
     ) -> tuple[GateDecision, str]:
         """Return a gate decision and reason string.
 
@@ -28,7 +29,7 @@ class GateKeeper:
         - FAIL verdict -> NO_GO
         - ESCALATE verdict -> ESCALATE
         - Low confidence -> ESCALATE
-        - No precedent -> ESCALATE (first-time fix)
+        - Novel pattern -> ESCALATE (first-time fix)
         - Otherwise -> GO
         """
         if constraint.verdict is Verdict.FAIL:
@@ -39,6 +40,19 @@ class GateKeeper:
 
         if rule_confidence < self.confidence_threshold:
             return GateDecision.ESCALATE, f"low confidence: {rule_confidence:.2f}"
+
+        # First-time fix check using pattern history
+        if pattern_history:
+            count = pattern_history["count"]
+            success_rate = pattern_history["success_rate"]
+            # A pattern seen > 5 times with > 80% success is "known"
+            if count > 5 and success_rate > 0.8:
+                return GateDecision.GO, "high-confidence pattern match"
+            if count < 2:
+                return (
+                    GateDecision.ESCALATE,
+                    "novel anomaly signature requires approval",
+                )
 
         if not has_precedent:
             return GateDecision.ESCALATE, "first-time fix requires approval"

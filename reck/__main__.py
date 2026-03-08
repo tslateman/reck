@@ -19,6 +19,7 @@ from gate.arbiter import GateKeeper
 from guard.checker import ConstraintChecker
 from ledger.archive import DecisionArchive
 from memory.baselines import BaselineStore
+from memory.patterns import PatternMemory
 from monitor.watcher import ActionMonitor
 from reck.events import (
     ActionLifecycle,
@@ -52,6 +53,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     detector = AnomalyDetector()
     prioritizer = Prioritizer()
     baselines = BaselineStore(db_path=PROJECT_ROOT / "data" / "baselines.db")
+    patterns = PatternMemory(db_path=PROJECT_ROOT / "data" / "patterns.db")
     engine = RuleEngine(PROJECT_ROOT / "rules" / "example.yaml")
     checker = ConstraintChecker(PROJECT_ROOT / "guard" / "constraints.yaml")
     gatekeeper = GateKeeper()
@@ -92,8 +94,10 @@ async def run_loop(*, anomaly: bool = False) -> None:
             if anomaly_event is None:
                 continue
 
-            # Triage
-            anomaly_event = prioritizer.prioritize(anomaly_event)
+            # Triage & Pattern Memory
+            patterns.record_occurrence(anomaly_event)
+            history = patterns.lookup(anomaly_event)
+            anomaly_event = prioritizer.prioritize(anomaly_event, pattern_history=history)
             baselines.record_anomaly(anomaly_event)
             logger.warning(
                 "Anomaly: %s = %.2f (%.1f sigma, %s)",
@@ -106,9 +110,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
             # Check breaker
             if breaker.tripped(LINE_ID):
                 logger.error("Circuit breaker tripped for %s, skipping", LINE_ID)
-                escalation.escalate(
-                    anomaly_event, None, None, "circuit breaker tripped"
-                )
+                escalation.escalate(anomaly_event, None, None, "circuit breaker tripped")
                 emit_escalation(source=LINE_ID, reason="circuit breaker tripped")
                 continue
 
@@ -134,7 +136,11 @@ async def run_loop(*, anomaly: bool = False) -> None:
             confidence.record_fired(proposal.rule_name)
             has_precedent = archive.check_precedent(proposal.source, proposal.rule_name)
             gate_decision, gate_reason = gatekeeper.decide(
-                proposal, constraint, has_precedent, rule_confidence=rule_confidence
+                proposal,
+                constraint,
+                has_precedent,
+                rule_confidence=rule_confidence,
+                pattern_history=history,
             )
 
             if gate_decision == GateDecision.NO_GO:
@@ -178,9 +184,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 sig = plant.signals.get("temperature")
                 return sig.actual if sig else 0.0
 
-            result = await watcher.monitor(
-                proposal, get_value, rollback_window_s=proposal.rollback_window_s
-            )
+            result = await watcher.monitor(proposal, get_value, rollback_window_s=proposal.rollback_window_s)
 
             if result.outcome == ActionLifecycle.REVERTED:
                 logger.warning("Monitor: reverting %s", proposal.action_id)
@@ -193,6 +197,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
 
             success = result.outcome == ActionLifecycle.CONFIRMED
             confidence.update(proposal.rule_name, success)
+            patterns.record_outcome(anomaly_event, success)
 
             record = DecisionRecord(
                 action_id=proposal.action_id,
@@ -236,6 +241,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
         t.cancel()
     watch_client.close()
     baselines.close()
+    patterns.close()
     confidence.close()
     logger.info("Reck stopped")
 
@@ -244,9 +250,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Reck autonomous manufacturing loop")
-    parser.add_argument(
-        "--anomaly", action="store_true", help="Inject anomaly after 10s"
-    )
+    parser.add_argument("--anomaly", action="store_true", help="Inject anomaly after 10s")
     args = parser.parse_args()
     asyncio.run(run_loop(anomaly=args.anomaly))
 
