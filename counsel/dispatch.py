@@ -35,9 +35,17 @@ class PraxisCounselDispatcher(CounselDispatcher):
         self._pending: dict[str, asyncio.Future[CounselResponse]] = {}
         self._mqtt = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2)
         self._mqtt.on_message = self._on_message
+        self._connected = False
 
     async def dispatch(self, request: CounselRequest) -> bool:
         """Serialize CounselRequest to JSON and emit via Praxis."""
+        if not self._connected:
+            logger.warning(
+                "counsel.dispatch.unavailable",
+                extra={"error_code": "MQTT_NOT_CONNECTED", "action_id": request.action_id},
+            )
+            return False
+
         try:
             # 1. Register future for the return trip
             self._pending[request.action_id] = asyncio.get_running_loop().create_future()
@@ -82,10 +90,19 @@ class PraxisCounselDispatcher(CounselDispatcher):
     async def listen(self, callback: Callable[[CounselResponse], None] | None = None) -> None:
         """Connect to MQTT and start the background loop."""
         self._callback = callback
-        self._mqtt.connect(MQTT_HOST, MQTT_PORT)
-        self._mqtt.subscribe("reck/counsel/results/#")
-        # Run paho-mqtt loop in background thread
-        self._mqtt.loop_start()
+        try:
+            self._mqtt.connect(MQTT_HOST, MQTT_PORT)
+            self._mqtt.subscribe("reck/counsel/results/#")
+            # Run paho-mqtt loop in background thread
+            self._mqtt.loop_start()
+            self._connected = True
+            logger.info("Counsel MQTT listener active")
+        except Exception as exc:
+            logger.warning(
+                "counsel.mqtt.connection_failed",
+                extra={"error": str(exc), "error_code": "MQTT_CONNECTION_FAILED"},
+            )
+            self._connected = False
 
     def _on_message(self, client, userdata, msg):
         """Handle incoming CounselResponse from MQTT."""
