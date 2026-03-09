@@ -1,7 +1,8 @@
 """Non-blocking gRPC client for the Rust watch stub.
 
-Forwards raw SignalEvents to the Rust hot-path stub. Failures are swallowed --
-the Rust binary may not be running, and that must never block the Python loop.
+Forwards raw SignalEvents to the Rust hot-path stub. Failures never block the
+Python loop, but every failure is logged at WARNING with a structured payload
+so autonomous agents can detect and act on persistent degradation.
 """
 
 from __future__ import annotations
@@ -32,7 +33,10 @@ class WatchClient:
             self._stub = reck_pb2_grpc.WatchServiceStub(self._channel)
             self._available = True
         except ImportError:
-            logger.debug("grpcio not available; WatchClient disabled")
+            logger.warning(
+                "watch.client disabled",
+                extra={"reason": "grpcio not installed", "error_code": "GRPC_UNAVAILABLE"},
+            )
             self._available = False
 
     def forward(self, event: SignalEvent) -> AnomalyEvent | None:
@@ -83,7 +87,14 @@ class WatchClient:
                 ),
             )
         except Exception as exc:
-            logger.debug("WatchClient.forward failed: %s", exc)
+            logger.warning(
+                "watch.client.forward failed",
+                extra={
+                    "source": event.source,
+                    "error": str(exc),
+                    "error_code": "GRPC_FORWARD_FAILED",
+                },
+            )
             return None
 
     def close(self) -> None:
