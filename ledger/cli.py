@@ -6,6 +6,7 @@ Usage:
     reck promote        Show patterns qualifying for promotion
     reck promote --id N Promote candidate N to a Tier 1 rule
     reck stats          Show rule performance and confidence summary
+    reck bench          Show hot-path latency statistics (ms)
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from memory.patterns import PatternMemory
 from reason.discovery import DiscoveryEngine
 from reason.graph import CausalGraph
 from reason.inference import InferenceEngine
+from reck.metrics import tracer
 from rules.confidence import RuleConfidence
 from rules.promotion import RulePromoter
 
@@ -45,6 +47,8 @@ def main() -> None:
     promote_parser.add_argument("--effect", type=float, default=1.0, help="The estimated effect size")
 
     sub.add_parser("stats", help="Show rule performance and confidence summary")
+
+    sub.add_parser("bench", help="Show hot-path latency statistics (ms)")
 
     reason_parser = sub.add_parser("reason", help="Tier 2 Causal Inference tools")
     reason_parser.add_argument("--graph", type=str, metavar="SIGNAL", help="Show causal neighbors of a signal")
@@ -134,6 +138,19 @@ def main() -> None:
             rule_name, alpha, beta, last_fired = r
             conf = alpha / (alpha + beta)
             print(f"{rule_name:<30} | {conf:10.2f} | {alpha:<5.0f} | {beta:<5.0f} | {last_fired or 'Never':<26}")
+
+    elif args.command == "bench":
+        stats = tracer.load_stats(PROJECT_ROOT / "data" / "latency.json")
+        if not stats:
+            print("No benchmark data available. Run 'just dev' first.")
+            return
+        print(f"{'COMPONENT':<20} | {'P50':<8} | {'P95':<8} | {'P99':<8} | {'COUNT':<6}")
+        print("-" * 60)
+        for component, data in sorted(stats.items()):
+            print(
+                f"{component:<20} | {data['p50']:8.2f} | {data['p95']:8.2f} | "
+                f"{data['p99']:8.2f} | {int(data['count']):<6}"
+            )
 
     elif args.command == "reason":
         graph = CausalGraph(data_path=PROJECT_ROOT / "data" / "graph.json")

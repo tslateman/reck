@@ -63,7 +63,7 @@ fmt:
 test:
     uv run pytest
 
-# Run integration tests (requires: just build-watch)
+# Run integration tests (requires: just build-core)
 test-integration:
     uv run pytest --run-integration
 
@@ -82,15 +82,15 @@ broker:
 broker-stop:
     docker stop reck-emqx && docker rm reck-emqx
 
-# --- Rust ---
+# --- Rust Hot-Path ---
 
-# Build Rust watch gRPC stub
-build-watch:
-    cd watch/rust && cargo build 2>&1
+# Build Rust hot-path target
+build-core:
+    cd reck-core && cargo build 2>&1
 
-# Run Rust watch gRPC stub (override port with WATCH_PORT env var)
-watch-stub:
-    cd watch/rust && cargo run
+# Run Rust hot-path stub (override port with WATCH_PORT env var)
+core-stub:
+    cd reck-core && cargo run
 
 # --- Proto ---
 

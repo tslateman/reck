@@ -166,5 +166,6 @@ message ActionAck {
 }
 
 message RevertRequest {
-  string action_id = 1;
+  string target = 1;                         // setpoint to revert
+  double original_value = 2;                 // value to restore
 }

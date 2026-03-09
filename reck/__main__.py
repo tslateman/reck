@@ -32,6 +32,7 @@ from reck.events import (
     SignalEvent,
 )
 from reck.lore import emit_escalation
+from reck.metrics import tracer
 from rules.confidence import RuleConfidence
 from rules.engine import RuleEngine
 from sim.plant import Plant
@@ -100,10 +101,12 @@ async def run_loop(*, anomaly: bool = False) -> None:
             baselines.update_baseline(event.source, event.value)
 
             # Detect (primary: Rust hot-path, fallback: Python stub)
-            anomaly_event = watch_client.forward(event)
+            with tracer.trace("watch"):
+                anomaly_event = watch_client.forward(event)
 
             if anomaly_event is None:
-                anomaly_event = detector.detect(event)
+                with tracer.trace("watch_fallback"):
+                    anomaly_event = detector.detect(event)
 
             if anomaly_event is None:
                 continue
@@ -136,7 +139,9 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 continue
 
             # Rules
-            proposal = engine.match(anomaly_event)
+            with tracer.trace("match"):
+                proposal = engine.match(anomaly_event)
+
             if proposal is None:
                 logger.info("No rule matched for %s. Analyzing causality...", anomaly_event.source)
                 # Tier 2: Root cause analysis
@@ -157,7 +162,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
             )
 
             # Guard
-            constraint = checker.validate(proposal)
+            with tracer.trace("guard"):
+                constraint = checker.validate(proposal)
             proposal.lifecycle = ActionLifecycle.VALIDATED
 
             # Gate
@@ -235,7 +241,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
 
             # Execute
             logger.info("Gate: GO - executing %s", proposal.action_id)
-            executor.execute(proposal, mqtt_publish)
+            with tracer.trace("act"):
+                executor.execute(proposal, mqtt_publish)
 
             # Monitor (short window for simulation)
             proposal.lifecycle = ActionLifecycle.MONITORING
@@ -283,10 +290,30 @@ async def run_loop(*, anomaly: bool = False) -> None:
             sig.setpoint += drift_rate
             await asyncio.sleep(1.0)
 
+    async def log_stats() -> None:
+        """Periodically log and save hot-path latency statistics."""
+        latency_path = PROJECT_ROOT / "data" / "latency.json"
+        while True:
+            await asyncio.sleep(60.0)
+            stats = tracer.get_stats()
+            if stats:
+                tracer.save_stats(latency_path)
+                logger.info("Hot-path Latency (ms):")
+                for component, data in stats.items():
+                    logger.info(
+                        "  %s: p50=%.2f, p95=%.2f, p99=%.2f (n=%d)",
+                        component,
+                        data["p50"],
+                        data["p95"],
+                        data["p99"],
+                        data["count"],
+                    )
+
     # --- Start tasks ---
     tasks = [
         asyncio.create_task(plant.run(callback=signal_queue, interval=1.0)),
         asyncio.create_task(process_signals()),
+        asyncio.create_task(log_stats()),
     ]
     if anomaly:
         tasks.append(asyncio.create_task(inject_drift()))
@@ -299,6 +326,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     await stop.wait()
     for t in tasks:
         t.cancel()
+    tracer.save_stats(PROJECT_ROOT / "data" / "latency.json")
     watch_client.close()
     baselines.close()
     patterns.close()

@@ -1,0 +1,1 @@
+{"rustc":2833068300835136146,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[10174602617423816219,"build_script_build",false,1769791686713439823]],"local":[{"RerunIfChanged":{"output":"debug/build/reck-core-6f78c0aa66ab41dc/output","paths":["../proto/reck.proto","../proto"]}}],"rustflags":[],"config":0,"compile_kind":0}

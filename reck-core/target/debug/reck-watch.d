@@ -1,0 +1,1 @@
+/Users/tslater/dev/reck/watch/rust/target/debug/reck-watch: /Users/tslater/dev/reck/watch/rust/../../proto /Users/tslater/dev/reck/watch/rust/../../proto/reck.proto /Users/tslater/dev/reck/watch/rust/build.rs /Users/tslater/dev/reck/watch/rust/src/main.rs /Users/tslater/dev/reck/watch/rust/target/debug/build/reck-watch-21c757eacbe4bbfe/out/reck.rs

@@ -20,7 +20,7 @@ grpc = pytest.importorskip("grpc")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROTO_DIR = PROJECT_ROOT / "proto"
-BINARY = PROJECT_ROOT / "watch" / "rust" / "target" / "debug" / "reck-watch"
+BINARY = PROJECT_ROOT / "reck-core" / "target" / "debug" / "reck-core"
 
 sys.path.insert(0, str(PROTO_DIR))
 
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.integration
 def watch_stub_process():
     """Start the Rust watch stub and yield. Terminate on cleanup."""
     if not BINARY.exists():
-        pytest.skip(f"Rust binary not found at {BINARY}. Run: just build-watch")
+        pytest.skip(f"Rust binary not found at {BINARY}. Run: just build-core")
 
     port = int(os.environ.get("WATCH_PORT", "50051"))
     proc = subprocess.Popen(
