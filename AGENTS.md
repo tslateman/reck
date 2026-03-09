@@ -24,7 +24,8 @@ To maintain a lean context window, do not read all documentation at once. Read t
 | **Tech Stack & Flow**    | `ARCHITECTURE.md`   | When adding new components, changing data flow, or working across the Rust/Python boundary.          |
 | **Rules & Constraints**  | `SAFETY.md`         | When implementing guards, executing fixes, or handling escalations. (Crucial: First-Time Fix rules). |
 | **Ecosystem Contracts**  | `INTEGRATION.md`    | When working on Lore (memory), Praxis (triggers), or Shipyard (fleets).                              |
-| **Project Roadmap**      | `plans/*.md`        | When deciding what to build next. The highest numbered plan is the current frontier.                 |
+| **Project Roadmap**      | `plans/*.md`        | When deciding what to build next. Plan 007 (LLM Reasoning) is the current frontier. |
+
 | **Component Names**      | `AGENTS.md` (Below) | When you need to know what a specific directory or module does.                                      |
 
 ## Component Vocabulary & Structure
