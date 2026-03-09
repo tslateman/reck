@@ -21,6 +21,8 @@ from ledger.archive import DecisionArchive
 from memory.baselines import BaselineStore
 from memory.patterns import PatternMemory
 from monitor.watcher import ActionMonitor
+from reason.graph import CausalGraph
+from reason.inference import InferenceEngine
 from reck.events import (
     ActionLifecycle,
     DecisionRecord,
@@ -54,6 +56,13 @@ async def run_loop(*, anomaly: bool = False) -> None:
     prioritizer = Prioritizer()
     baselines = BaselineStore(db_path=PROJECT_ROOT / "data" / "baselines.db")
     patterns = PatternMemory(db_path=PROJECT_ROOT / "data" / "patterns.db")
+    graph = CausalGraph(data_path=PROJECT_ROOT / "data" / "graph.json")
+    if not (PROJECT_ROOT / "data" / "graph.json").exists():
+        graph.load_topology(PROJECT_ROOT / "sim" / "topology.yaml")
+        graph.save_state()
+    else:
+        graph.load_state()
+    inference = InferenceEngine(graph)
     engine = RuleEngine(PROJECT_ROOT / "rules" / "example.yaml")
     checker = ConstraintChecker(PROJECT_ROOT / "guard" / "constraints.yaml")
     gatekeeper = GateKeeper()
@@ -110,14 +119,29 @@ async def run_loop(*, anomaly: bool = False) -> None:
             # Check breaker
             if breaker.tripped(LINE_ID):
                 logger.error("Circuit breaker tripped for %s, skipping", LINE_ID)
-                escalation.escalate(anomaly_event, None, None, "circuit breaker tripped")
+                # Tier 2: Why are we cascading?
+                hypotheses = []
+                neighbors = graph.get_neighbors(anomaly_event.source)
+                if neighbors:
+                    df = baselines.get_history(neighbors + [anomaly_event.source], last_n=100)
+                    hypotheses = inference.rank_interventions(anomaly_event.source, df)[:3]
+
+                escalation.escalate(anomaly_event, None, None, "circuit breaker tripped", causal_hypotheses=hypotheses)
                 emit_escalation(source=LINE_ID, reason="circuit breaker tripped")
                 continue
 
             # Rules
             proposal = engine.match(anomaly_event)
             if proposal is None:
-                logger.info("No rule matched for %s", anomaly_event.source)
+                logger.info("No rule matched for %s. Analyzing causality...", anomaly_event.source)
+                # Tier 2: Root cause analysis
+                hypotheses = []
+                neighbors = graph.get_neighbors(anomaly_event.source)
+                if neighbors:
+                    df = baselines.get_history(neighbors + [anomaly_event.source], last_n=100)
+                    hypotheses = inference.rank_interventions(anomaly_event.source, df)[:3]
+
+                escalation.escalate(anomaly_event, None, None, "no rule matched", causal_hypotheses=hypotheses)
                 continue
 
             logger.info(
@@ -159,7 +183,14 @@ async def run_loop(*, anomaly: bool = False) -> None:
 
             if gate_decision == GateDecision.ESCALATE:
                 logger.warning("Gate: ESCALATE - %s", gate_reason)
-                escalation.escalate(anomaly_event, proposal, constraint, gate_reason)
+                # Tier 2 context
+                hypotheses = []
+                neighbors = graph.get_neighbors(anomaly_event.source)
+                if neighbors:
+                    df = baselines.get_history(neighbors + [anomaly_event.source], last_n=100)
+                    hypotheses = inference.rank_interventions(anomaly_event.source, df)[:3]
+
+                escalation.escalate(anomaly_event, proposal, constraint, gate_reason, causal_hypotheses=hypotheses)
                 record = DecisionRecord(
                     action_id=proposal.action_id,
                     anomaly=anomaly_event,

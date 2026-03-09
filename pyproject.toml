@@ -11,6 +11,10 @@ dependencies = [
     "grpcio-tools>=1.60",
     "protobuf>=4.25",
     "jsonschema>=4.0",
+    "dowhy>=0.14",
+    "causal-learn>=0.1.4.4",
+    "networkx>=3.6.1",
+    "pandas>=3.0.1",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +38,7 @@ packages = [
     "ledger",
     "memory",
     "monitor",
+    "reason",
     "reck",
     "rules",
     "sim",

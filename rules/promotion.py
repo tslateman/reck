@@ -112,5 +112,48 @@ class RulePromoter:
 
         return rule_name
 
+    def promote_hypothesis(self, treatment: str, outcome: str, effect: float, rules_path: Path) -> str:
+        """Promote a causal hypothesis to a YAML rule."""
+        rule_name = f"causal_{treatment.replace('/', '_')}_to_{outcome.replace('/', '_')}"
+
+        # Load existing rules
+        rules_path.parent.mkdir(parents=True, exist_ok=True)
+        if rules_path.exists():
+            with open(rules_path) as f:
+                data = yaml.safe_load(f) or {"rules": []}
+        else:
+            data = {"rules": []}
+
+        if any(r["name"] == rule_name for r in data["rules"]):
+            return rule_name
+
+        # Create new rule from hypothesis
+        # If effect is positive, we need to move treatment in opposite direction
+        # to counter a positive deviation in outcome.
+        # This is a heuristic for the skeleton.
+        delta = -1.0 if effect > 0 else 1.0
+
+        new_rule = {
+            "name": rule_name,
+            "source": outcome,
+            "condition": "deviation > 3.0",
+            "action": {
+                "target": f"{treatment}_sp",
+                "delta": delta,
+            },
+            "meta": {
+                "promoted_at": datetime.now(timezone.utc).isoformat(),
+                "type": "causal_hypothesis",
+                "estimated_effect": effect,
+            },
+        }
+
+        data["rules"].append(new_rule)
+
+        with open(rules_path, "w") as f:
+            yaml.dump(data, f)
+
+        return rule_name
+
     def close(self) -> None:
         self._conn.close()

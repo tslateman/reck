@@ -1,0 +1,21 @@
+# Reck Signal Topology Seeding
+
+# Defines physical and logical dependencies to seed the causal graph.
+# Nodes: site/area/line/cell/device/signal
+
+topology:
+  - signal: site1/area1/line1/cell1/extruder/temperature
+    depends_on:
+      - site1/area1/line1/cell1/extruder/heater_power
+      - site1/area1/line1/cell1/extruder/ambient_temp
+      - site1/area1/line1/cell1/extruder/fan_speed
+
+  - signal: site1/area1/line1/cell1/extruder/pressure
+    depends_on:
+      - site1/area1/line1/cell1/extruder/screw_speed
+      - site1/area1/line1/cell1/extruder/temperature
+
+  - signal: site1/area1/line1/cell1/extruder/flow_rate
+    depends_on:
+      - site1/area1/line1/cell1/extruder/pressure
+      - site1/area1/line1/cell1/extruder/screw_speed
