@@ -144,7 +144,27 @@ service WatchService {
   rpc ForwardSignal (SignalEvent) returns (SignalAck);
 }
 
+// gRPC service: Rust guard stub validates proposals against safety bounds.
+service GuardService {
+  rpc ValidateProposal (ActionProposal) returns (ConstraintResult);
+}
+
+// gRPC service: Rust act stub executes setpoint adjustments.
+service ActService {
+  rpc ExecuteAction (ActionProposal) returns (ActionAck);
+  rpc RevertAction (RevertRequest) returns (ActionAck);
+}
+
 message SignalAck {
   bool accepted = 1;
   AnomalyEvent anomaly = 2;                  // set if anomalous
+}
+
+message ActionAck {
+  bool success = 1;
+  string error = 2;
+}
+
+message RevertRequest {
+  string action_id = 1;
 }
