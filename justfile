@@ -46,6 +46,10 @@ sim-anomaly:
 log *ARGS:
     uv run reck log {{ARGS}}
 
+# Show hot-path latency statistics (ms)
+bench:
+    uv run reck bench
+
 # --- Quality ---
 
 # Lint + format + type-check

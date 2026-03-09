@@ -12,13 +12,13 @@ import logging
 import signal
 from pathlib import Path
 
-from act.executor import ActionExecutor
+from act.executor import ActClient, ActionExecutor
 from breaker.circuit import CircuitBreaker
 from counsel.dispatch import PraxisCounselDispatcher
 from counsel.packager import ContextPackager
 from escalate.handler import EscalationHandler
 from gate.arbiter import GateKeeper
-from guard.checker import ConstraintChecker
+from guard.checker import ConstraintChecker, GuardClient
 from ledger.archive import DecisionArchive
 from memory.baselines import BaselineStore
 from memory.patterns import PatternMemory
@@ -30,6 +30,7 @@ from reck.events import (
     DecisionRecord,
     GateDecision,
     SignalEvent,
+    Verdict,
 )
 from reck.lore import emit_escalation
 from reck.metrics import tracer
@@ -71,8 +72,10 @@ async def run_loop(*, anomaly: bool = False) -> None:
     await dispatcher.listen()
     engine = RuleEngine(PROJECT_ROOT / "rules" / "example.yaml")
     checker = ConstraintChecker(PROJECT_ROOT / "guard" / "constraints.yaml")
+    guard_client = GuardClient()
     gatekeeper = GateKeeper()
-    executor = ActionExecutor()
+    act_client = ActClient()
+    executor = ActionExecutor(act_client=act_client)
     watcher = ActionMonitor()
     confidence = RuleConfidence(db_path=PROJECT_ROOT / "data" / "confidence.db")
     breaker = CircuitBreaker()
@@ -161,9 +164,34 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 proposal.delta,
             )
 
-            # Guard
+            # Guard (Shadow Mode)
             with tracer.trace("guard"):
-                constraint = checker.validate(proposal)
+                rust_result = guard_client.validate(proposal)
+
+            with tracer.trace("guard_shadow"):
+                py_result = checker.validate(proposal)
+
+            # Consensus & Restrictive Default
+            if rust_result is None:
+                constraint = py_result
+            else:
+                constraint = rust_result
+                # Constitutional Check: Verify Rust matches Python baseline
+                if rust_result.verdict != py_result.verdict:
+                    logger.warning(
+                        "constitution.violation",
+                        extra={
+                            "error_code": "GUARD_MISMATCH",
+                            "rust_verdict": rust_result.verdict.name,
+                            "py_verdict": py_result.verdict.name,
+                            "action_id": proposal.action_id,
+                        },
+                    )
+                    # If mismatch, default to Fail for safety
+                    if py_result.verdict == Verdict.FAIL or rust_result.verdict == Verdict.FAIL:
+                        constraint.verdict = Verdict.FAIL
+                        constraint.reason = f"Mismatch (R:{rust_result.verdict.name} P:{py_result.verdict.name})"
+
             proposal.lifecycle = ActionLifecycle.VALIDATED
 
             # Gate
@@ -328,6 +356,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
         t.cancel()
     tracer.save_stats(PROJECT_ROOT / "data" / "latency.json")
     watch_client.close()
+    guard_client.close()
+    act_client.close()
     baselines.close()
     patterns.close()
     dispatcher.close()

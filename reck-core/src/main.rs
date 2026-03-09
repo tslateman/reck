@@ -8,7 +8,12 @@ pub mod reck {
     tonic::include_proto!("reck");
 }
 
+mod guard;
+mod act;
+
 use reck::{
+    act_service_server::ActServiceServer,
+    guard_service_server::GuardServiceServer,
     watch_service_server::{WatchService, WatchServiceServer},
     AnomalyEvent, SignalAck, SignalEvent,
 };
@@ -114,12 +119,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(50051);
     let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
-    eprintln!("[watch-stub] listening on {addr}");
+    eprintln!("[reck-core] listening on {addr}");
 
-    let service = WatchServiceImpl::default();
+    let watch_service = WatchServiceImpl::default();
+
+    let constraints_path = std::env::var("CONSTRAINTS_PATH")
+        .unwrap_or_else(|_| "../guard/constraints.yaml".to_string());
+    let guard_service = guard::GuardServiceImpl::from_yaml(std::path::Path::new(&constraints_path))?;
+
+    let mqtt_host = std::env::var("MQTT_HOST").unwrap_or_else(|_| "localhost".to_string());
+    let mqtt_port = std::env::var("MQTT_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1883);
+    
+    let (act_service, mut eventloop) = act::ActServiceImpl::new(&mqtt_host, mqtt_port).await;
+
+    // Spawn MQTT event loop
+    tokio::spawn(async move {
+        loop {
+            match eventloop.poll().await {
+                Ok(notification) => {
+                    if let rumqttc::Event::Incoming(_) = notification {
+                        // success
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[act] MQTT poll error: {}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+        }
+    });
 
     Server::builder()
-        .add_service(WatchServiceServer::new(service))
+        .add_service(WatchServiceServer::new(watch_service))
+        .add_service(GuardServiceServer::new(guard_service))
+        .add_service(ActServiceServer::new(act_service))
         .serve(addr)
         .await?;
 

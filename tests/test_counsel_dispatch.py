@@ -20,6 +20,7 @@ async def test_praxis_dispatch_spawns_subprocess() -> None:
     request = CounselRequest(action_id="act_123", anomaly=AnomalyEvent(source="test/signal"))
 
     dispatcher = PraxisCounselDispatcher()
+    dispatcher._connected = True
 
     with patch("subprocess.Popen") as mock_popen:
         success = await dispatcher.dispatch(request)

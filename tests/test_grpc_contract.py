@@ -13,10 +13,20 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
+import grpc
 import pytest
 
-grpc = pytest.importorskip("grpc")
+grpc_available = True
+try:
+    import grpc
+except ImportError:
+    grpc_available = False
+
+if not grpc_available:
+    pytest.skip("grpc not available", allow_module_level=True)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROTO_DIR = PROJECT_ROOT / "proto"
@@ -36,12 +46,18 @@ def watch_stub_process():
     port = int(os.environ.get("WATCH_PORT", "50051"))
     proc = subprocess.Popen(
         [str(BINARY)],
-        env={**os.environ, "WATCH_PORT": str(port)},
+        env={
+            **os.environ,
+            "WATCH_PORT": str(port),
+            "CONSTRAINTS_PATH": str(PROJECT_ROOT / "guard" / "constraints.yaml"),
+        },
+        stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    # Wait for server to be ready (up to 5s)
-    deadline = time.monotonic() + 5.0
-    channel = grpc.insecure_channel(f"localhost:{port}")
+    # Wait for server to be ready (up to 10s)
+    time.sleep(2.0)  # Give it a head start
+    deadline = time.monotonic() + 10.0
+    channel = grpc.insecure_channel(f"127.0.0.1:{port}")
     while time.monotonic() < deadline:
         try:
             grpc.channel_ready_future(channel).result(timeout=0.2)
@@ -128,6 +144,52 @@ def test_watch_client_forward_integration(watch_stub_process):
     assert anomaly.value == 120.0
     assert anomaly.deviation_sigma > 3.0
     client.close()
+
+
+def test_guard_validation(watch_stub_process):
+    """GuardService returns PASS for a valid proposal."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.GuardServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="act_123",
+        source="temp",
+        target="site1/area1/line1/cell1/extruder/temperature",
+        proposed_value=210.0,
+        delta=10.0,
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    response = stub.ValidateProposal(proposal)
+    assert response.action_id == "act_123"
+    # Verdict 1 is PASS
+    assert response.verdict == 1
+
+
+def test_act_execution(watch_stub_process):
+    """ActService returns success=True for a valid proposal."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.ActServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="act_456",
+        source="temp",
+        target="site1/area1/line1/cell1/extruder/temperature",
+        proposed_value=210.0,
+        delta=10.0,
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    response = stub.ExecuteAction(proposal)
+    assert response.success is True
 
 
 def test_signal_event_schema_fields(watch_stub_process):
