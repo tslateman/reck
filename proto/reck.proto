@@ -103,6 +103,42 @@ enum GateDecision {
   GATE_ESCALATE = 3;
 }
 
+// Tier 3: LLM/Agent reasoning request.
+message CounselRequest {
+  string action_id = 1;
+  AnomalyEvent anomaly = 2;
+  repeated SignalSample history = 3;         // recent window for all relevant signals
+  repeated CausalLink graph = 4;             // local causal neighborhood
+  repeated CausalHypothesis hypotheses = 5;  // Tier 2 DoWhy estimates
+}
+
+// Tier 3: LLM/Agent reasoning response.
+message CounselResponse {
+  string action_id = 1;
+  string narrative = 2;                      // natural language explanation
+  string diagnostic_intent = 3;              // e.g. "vibration_sweep"
+  double agent_confidence = 4;
+}
+
+message SignalSample {
+  string source = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  double value = 3;
+}
+
+message CausalLink {
+  string source = 1;
+  string target = 2;
+  double confidence = 3;
+  string origin = 4;                         // "topology" or "discovery"
+}
+
+message CausalHypothesis {
+  string treatment = 1;
+  double estimated_effect = 2;
+  bool is_robust = 3;
+}
+
 // gRPC service: Rust watch stub forwards events to Python reasoning path.
 service WatchService {
   rpc ForwardSignal (SignalEvent) returns (SignalAck);

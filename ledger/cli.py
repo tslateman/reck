@@ -13,6 +13,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from google.protobuf import json_format
+
+from counsel.packager import ContextPackager
 from ledger.archive import DecisionArchive
 from memory.baselines import BaselineStore
 from memory.patterns import PatternMemory
@@ -47,6 +50,9 @@ def main() -> None:
     reason_parser.add_argument("--graph", type=str, metavar="SIGNAL", help="Show causal neighbors of a signal")
     reason_parser.add_argument("--discover", action="store_true", help="Run causal discovery on recent data")
     reason_parser.add_argument("--anomaly", type=str, metavar="SIGNAL", help="Rank candidate causes for an anomaly")
+    reason_parser.add_argument(
+        "--package", type=str, metavar="SIGNAL", help="Assembled diagnostic context for an anomaly"
+    )
 
     args = parser.parse_args()
 
@@ -197,6 +203,52 @@ def main() -> None:
                 for r in rankings:
                     robust = "YES" if r["is_robust"] else "NO"
                     print(f"{r['treatment']:<30} | {r['value']:12.4f} | {robust}")
+        elif args.package:
+            baselines = BaselineStore(db_path=PROJECT_ROOT / "data" / "baselines.db")
+            # We need an actual anomaly to package.
+            # In CLI, we mock the anomaly event from current baseline.
+            stats = baselines.get_baseline(args.package)
+            if not stats:
+                print(f"No baseline data for {args.package}")
+                return
+            mean, stddev = stats
+            # Fetch last value
+            df_last = baselines.get_history([args.package], last_n=1)
+            if df_last.empty:
+                print(f"No history for {args.package}")
+                return
+            current_val = float(df_last.iloc[0][args.package])
+
+            import uuid
+            from datetime import datetime, timezone
+
+            from reck.events import AnomalyEvent, EventContext, Priority
+
+            anomaly = AnomalyEvent(
+                source=args.package,
+                value=current_val,
+                baseline_mean=mean,
+                baseline_stddev=stddev,
+                deviation_sigma=abs(current_val - mean) / stddev if stddev > 0 else 0,
+                priority=Priority.MEDIUM,
+                timestamp=datetime.now(timezone.utc),
+                context=EventContext(recipe="CLI_MOCK"),
+            )
+
+            # Tier 2 context
+            inference = InferenceEngine(graph)
+            neighbors = graph.get_neighbors(args.package)
+            hypotheses = []
+            if neighbors:
+                df = baselines.get_history(neighbors + [args.package], last_n=100)
+                hypotheses = inference.rank_interventions(args.package, df)
+
+            # Package
+            packager = ContextPackager(baselines, graph)
+            request = packager.package(anomaly, uuid.uuid4().hex[:12], hypotheses)
+
+            # Output as JSON
+            print(json_format.MessageToJson(request))
         else:
             reason_parser.print_help()
 

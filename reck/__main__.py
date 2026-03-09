@@ -14,6 +14,8 @@ from pathlib import Path
 
 from act.executor import ActionExecutor
 from breaker.circuit import CircuitBreaker
+from counsel.dispatch import PraxisCounselDispatcher
+from counsel.packager import ContextPackager
 from escalate.handler import EscalationHandler
 from gate.arbiter import GateKeeper
 from guard.checker import ConstraintChecker
@@ -63,6 +65,9 @@ async def run_loop(*, anomaly: bool = False) -> None:
     else:
         graph.load_state()
     inference = InferenceEngine(graph)
+    packager = ContextPackager(baselines, graph)
+    dispatcher = PraxisCounselDispatcher()
+    await dispatcher.listen()
     engine = RuleEngine(PROJECT_ROOT / "rules" / "example.yaml")
     checker = ConstraintChecker(PROJECT_ROOT / "guard" / "constraints.yaml")
     gatekeeper = GateKeeper()
@@ -183,6 +188,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
 
             if gate_decision == GateDecision.ESCALATE:
                 logger.warning("Gate: ESCALATE - %s", gate_reason)
+
                 # Tier 2 context
                 hypotheses = []
                 neighbors = graph.get_neighbors(anomaly_event.source)
@@ -190,7 +196,30 @@ async def run_loop(*, anomaly: bool = False) -> None:
                     df = baselines.get_history(neighbors + [anomaly_event.source], last_n=100)
                     hypotheses = inference.rank_interventions(anomaly_event.source, df)[:3]
 
-                escalation.escalate(anomaly_event, proposal, constraint, gate_reason, causal_hypotheses=hypotheses)
+                # Tier 3: Asynchronous Counsel from Fleet
+                narrative = ""
+                diagnostic_intent = ""
+
+                # Assemble and dispatch context
+                request = packager.package(anomaly_event, proposal.action_id, hypotheses)
+                if await dispatcher.dispatch(request):
+                    logger.info("Awaiting fleet counsel for %s", proposal.action_id)
+                    # Wait up to 30s for the return trip
+                    response = await dispatcher.wait_for_response(proposal.action_id, timeout_s=30.0)
+                    if response:
+                        logger.info("Received fleet counsel for %s", proposal.action_id)
+                        narrative = response.narrative
+                        diagnostic_intent = response.diagnostic_intent
+
+                escalation.escalate(
+                    anomaly_event,
+                    proposal,
+                    constraint,
+                    gate_reason,
+                    causal_hypotheses=hypotheses,
+                    counsel_narrative=narrative,
+                    diagnostic_intent=diagnostic_intent,
+                )
                 record = DecisionRecord(
                     action_id=proposal.action_id,
                     anomaly=anomaly_event,
@@ -273,6 +302,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     watch_client.close()
     baselines.close()
     patterns.close()
+    dispatcher.close()
     confidence.close()
     logger.info("Reck stopped")
 

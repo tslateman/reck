@@ -30,6 +30,8 @@ class EscalationHandler:
         constraint: ConstraintResult | None,
         reason: str,
         causal_hypotheses: list[dict] | None = None,
+        counsel_narrative: str = "",
+        diagnostic_intent: str = "",
     ) -> None:
         """Append an escalation record as a JSON line."""
         self._data_dir.mkdir(parents=True, exist_ok=True)
@@ -40,6 +42,8 @@ class EscalationHandler:
             "proposal": asdict(proposal) if proposal else None,
             "constraint": asdict(constraint) if constraint else None,
             "causal_hypotheses": causal_hypotheses,
+            "counsel_narrative": counsel_narrative,
+            "diagnostic_intent": diagnostic_intent,
         }
         path = self._data_dir / "escalations.jsonl"
         with open(path, "a") as f:
