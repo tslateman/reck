@@ -55,45 +55,75 @@ impl GuardService for GuardServiceImpl {
 
                 // Min/Max check
                 if proposal.proposed_value < c.min {
+                    let reason = format!(
+                        "proposed value {} below minimum {} {}",
+                        proposal.proposed_value, c.min, c.unit
+                    );
+                    tracing::warn!(
+                        action_id = %proposal.action_id,
+                        constraint = %c.parameter,
+                        error_code = "CONSTRAINT_FAIL",
+                        reason = %reason,
+                        "guard rejected proposal"
+                    );
                     return Ok(Response::new(ConstraintResult {
                         action_id: proposal.action_id,
                         verdict: Verdict::Fail as i32,
                         violated_constraint: c.parameter.clone(),
-                        reason: format!(
-                            "proposed value {} below minimum {} {}",
-                            proposal.proposed_value, c.min, c.unit
-                        ),
+                        reason,
                     }));
                 }
 
                 if proposal.proposed_value > c.max {
+                    let reason = format!(
+                        "proposed value {} exceeds maximum {} {}",
+                        proposal.proposed_value, c.max, c.unit
+                    );
+                    tracing::warn!(
+                        action_id = %proposal.action_id,
+                        constraint = %c.parameter,
+                        error_code = "CONSTRAINT_FAIL",
+                        reason = %reason,
+                        "guard rejected proposal"
+                    );
                     return Ok(Response::new(ConstraintResult {
                         action_id: proposal.action_id,
                         verdict: Verdict::Fail as i32,
                         violated_constraint: c.parameter.clone(),
-                        reason: format!(
-                            "proposed value {} exceeds maximum {} {}",
-                            proposal.proposed_value, c.max, c.unit
-                        ),
+                        reason,
                     }));
                 }
 
                 // Rate of change check
                 if proposal.delta.abs() > c.rate_of_change {
+                    let reason = format!(
+                        "delta {} exceeds rate-of-change limit {}",
+                        proposal.delta.abs(),
+                        c.rate_of_change
+                    );
+                    tracing::warn!(
+                        action_id = %proposal.action_id,
+                        constraint = %c.parameter,
+                        error_code = "CONSTRAINT_FAIL",
+                        reason = %reason,
+                        "guard rejected proposal"
+                    );
                     return Ok(Response::new(ConstraintResult {
                         action_id: proposal.action_id,
                         verdict: Verdict::Fail as i32,
                         violated_constraint: c.parameter.clone(),
-                        reason: format!(
-                            "delta {} exceeds rate-of-change limit {}",
-                            proposal.delta.abs(),
-                            c.rate_of_change
-                        ),
+                        reason,
                     }));
                 }
 
                 // Approval check
                 if c.requires_approval {
+                    tracing::warn!(
+                        action_id = %proposal.action_id,
+                        constraint = %c.parameter,
+                        error_code = "CONSTRAINT_ESCALATE",
+                        "guard escalated proposal"
+                    );
                     return Ok(Response::new(ConstraintResult {
                         action_id: proposal.action_id,
                         verdict: Verdict::Escalate as i32,
@@ -105,6 +135,7 @@ impl GuardService for GuardServiceImpl {
         }
 
         // PASS if no constraints failed
+        tracing::debug!(action_id = %proposal.action_id, "guard passed proposal");
         Ok(Response::new(ConstraintResult {
             action_id: proposal.action_id,
             verdict: Verdict::Pass as i32,

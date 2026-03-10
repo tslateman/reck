@@ -114,12 +114,19 @@ impl WatchService for WatchServiceImpl {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("reck_core=info".parse().unwrap()),
+        )
+        .init();
+
     let port: u16 = std::env::var("WATCH_PORT")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(50051);
     let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
-    eprintln!("[reck-core] listening on {addr}");
+    tracing::info!(addr = %addr, "reck-core listening");
 
     let watch_service = WatchServiceImpl::default();
 
@@ -132,20 +139,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(1883);
-    
+
     let (act_service, mut eventloop) = act::ActServiceImpl::new(&mqtt_host, mqtt_port).await;
+    let connected = act_service.connected.clone();
 
     // Spawn MQTT event loop
     tokio::spawn(async move {
         loop {
             match eventloop.poll().await {
-                Ok(notification) => {
-                    if let rumqttc::Event::Incoming(_) = notification {
-                        // success
-                    }
+                Ok(rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_))) => {
+                    tracing::info!("act MQTT connected");
+                    connected.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
+                Ok(_) => {}
                 Err(e) => {
-                    eprintln!("[act] MQTT poll error: {}", e);
+                    tracing::warn!(error = %e, error_code = "MQTT_POLL_ERROR", "act MQTT poll error");
+                    connected.store(false, std::sync::atomic::Ordering::Relaxed);
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
             }

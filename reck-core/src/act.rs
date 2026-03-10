@@ -1,4 +1,8 @@
 use rumqttc::{AsyncClient, MqttOptions, QoS};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
 use tonic::{Request, Response, Status};
 
@@ -8,15 +12,16 @@ use crate::reck::{
 
 pub struct ActServiceImpl {
     mqtt_client: AsyncClient,
+    pub connected: Arc<AtomicBool>,
 }
 
 impl ActServiceImpl {
     pub async fn new(host: &str, port: u16) -> (Self, rumqttc::EventLoop) {
         let mut mqttoptions = MqttOptions::new("reck-core-act", host, port);
         mqttoptions.set_keep_alive(Duration::from_secs(5));
-
         let (client, eventloop) = AsyncClient::new(mqttoptions, 10);
-        (Self { mqtt_client: client }, eventloop)
+        let connected = Arc::new(AtomicBool::new(false));
+        (Self { mqtt_client: client, connected }, eventloop)
     }
 }
 
@@ -26,6 +31,14 @@ impl ActService for ActServiceImpl {
         &self,
         request: Request<ActionProposal>,
     ) -> Result<Response<ActionAck>, Status> {
+        if !self.connected.load(Ordering::Relaxed) {
+            tracing::warn!(
+                error_code = "MQTT_UNAVAILABLE",
+                "execute_action rejected: broker unreachable"
+            );
+            return Err(Status::unavailable("MQTT broker unreachable"));
+        }
+
         let proposal = request.into_inner();
         let topic = format!("{}/cmd", proposal.target);
         let payload = proposal.proposed_value.to_string();
@@ -35,10 +48,10 @@ impl ActService for ActServiceImpl {
                 success: true,
                 error: "".to_string(),
             })),
-            Err(e) => Ok(Response::new(ActionAck {
-                success: false,
-                error: format!("MQTT publish failed: {}", e),
-            })),
+            Err(e) => {
+                tracing::warn!(error = %e, error_code = "MQTT_PUBLISH_FAILED", "execute_action publish failed");
+                Err(Status::internal("MQTT_PUBLISH_FAILED"))
+            }
         }
     }
 
@@ -46,6 +59,14 @@ impl ActService for ActServiceImpl {
         &self,
         request: Request<RevertRequest>,
     ) -> Result<Response<ActionAck>, Status> {
+        if !self.connected.load(Ordering::Relaxed) {
+            tracing::warn!(
+                error_code = "MQTT_UNAVAILABLE",
+                "revert_action rejected: broker unreachable"
+            );
+            return Err(Status::unavailable("MQTT broker unreachable"));
+        }
+
         let req = request.into_inner();
         let topic = format!("{}/cmd", req.target);
         let payload = req.original_value.to_string();
@@ -55,10 +76,10 @@ impl ActService for ActServiceImpl {
                 success: true,
                 error: "".to_string(),
             })),
-            Err(e) => Ok(Response::new(ActionAck {
-                success: false,
-                error: format!("MQTT revert failed: {}", e),
-            })),
+            Err(e) => {
+                tracing::warn!(error = %e, error_code = "MQTT_REVERT_FAILED", "revert_action publish failed");
+                Err(Status::internal("MQTT_REVERT_FAILED"))
+            }
         }
     }
 }
