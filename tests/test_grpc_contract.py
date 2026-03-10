@@ -213,3 +213,283 @@ def test_action_lifecycle_values_match(watch_stub_process):
     proto_names = {v.name for v in reck_pb2.ActionLifecycle.DESCRIPTOR.values}
     for member in ActionLifecycle:
         assert member.name in proto_names, f"{member.name} missing from proto ActionLifecycle"
+
+
+# ---------------------------------------------------------------------------
+# GuardService contract tests
+# ---------------------------------------------------------------------------
+
+TARGET_TEMP_SP = "site1/area1/line1/cell1/extruder/temperature_sp"
+
+# Constraint values from guard/constraints.yaml:
+#   temperature_sp: min=160.0, max=230.0, rate_of_change=10.0
+
+
+def test_guard_pass_valid_proposal(watch_stub_process):
+    """GuardService returns PASS for a proposal within constraints."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.GuardServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="guard_pass_001",
+        source="test",
+        target=TARGET_TEMP_SP,
+        proposed_value=200.0,
+        delta=5.0,
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    response = stub.ValidateProposal(proposal)
+    assert response.action_id == "guard_pass_001"
+    assert response.verdict == 1  # Verdict.PASS
+
+
+def test_guard_fail_below_minimum(watch_stub_process):
+    """GuardService returns FAIL when proposed_value < min."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.GuardServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="guard_fail_min_001",
+        source="test",
+        target=TARGET_TEMP_SP,
+        proposed_value=150.0,  # below min=160.0
+        delta=5.0,
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    response = stub.ValidateProposal(proposal)
+    assert response.action_id == "guard_fail_min_001"
+    assert response.verdict == 2  # Verdict.FAIL
+
+
+def test_guard_fail_above_maximum(watch_stub_process):
+    """GuardService returns FAIL when proposed_value > max."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.GuardServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="guard_fail_max_001",
+        source="test",
+        target=TARGET_TEMP_SP,
+        proposed_value=240.0,  # above max=230.0
+        delta=5.0,
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    response = stub.ValidateProposal(proposal)
+    assert response.action_id == "guard_fail_max_001"
+    assert response.verdict == 2  # Verdict.FAIL
+
+
+def test_guard_fail_rate_of_change(watch_stub_process):
+    """GuardService returns FAIL when |delta| exceeds rate_of_change."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.GuardServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="guard_fail_roc_001",
+        source="test",
+        target=TARGET_TEMP_SP,
+        proposed_value=200.0,  # within range
+        delta=15.0,  # exceeds rate_of_change=10.0
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    response = stub.ValidateProposal(proposal)
+    assert response.action_id == "guard_fail_roc_001"
+    assert response.verdict == 2  # Verdict.FAIL
+
+
+def test_guard_verdict_field_structure(watch_stub_process):
+    """ConstraintResult has action_id, verdict, violated_constraint, reason."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.GuardServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="guard_struct_001",
+        source="test",
+        target=TARGET_TEMP_SP,
+        proposed_value=150.0,  # triggers FAIL to populate all fields
+        delta=5.0,
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    response = stub.ValidateProposal(proposal)
+
+    # All four fields must be present on a FAIL result
+    assert hasattr(response, "action_id")
+    assert hasattr(response, "verdict")
+    assert hasattr(response, "violated_constraint")
+    assert hasattr(response, "reason")
+    assert response.action_id == "guard_struct_001"
+    assert response.verdict == 2  # Verdict.FAIL
+    assert response.violated_constraint != ""
+    assert response.reason != ""
+
+
+# ---------------------------------------------------------------------------
+# ActService contract tests
+# ---------------------------------------------------------------------------
+
+
+def test_act_execute_action_structure(watch_stub_process):
+    """ExecuteAction returns ActionAck with success and error fields, or raises RpcError when broker is down."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from reck.events import ActionLifecycle
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.ActServiceStub(channel)
+
+    proposal = reck_pb2.ActionProposal(
+        action_id="act_exec_001",
+        source="test",
+        target=TARGET_TEMP_SP,
+        proposed_value=200.0,
+        delta=5.0,
+        lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+    )
+    try:
+        response = stub.ExecuteAction(proposal)
+        # Broker connected: assert structure
+        assert hasattr(response, "success")
+        assert hasattr(response, "error")
+        assert isinstance(response.success, bool)
+        assert isinstance(response.error, str)
+    except grpc.RpcError as exc:
+        # Broker down: service returns UNAVAILABLE -- acceptable outcome
+        assert exc.code() == grpc.StatusCode.UNAVAILABLE, f"Expected UNAVAILABLE when broker is down, got {exc.code()}"
+
+
+def test_act_revert_action_structure(watch_stub_process):
+    """RevertAction returns ActionAck with success and error fields, or raises RpcError when broker is down."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.ActServiceStub(channel)
+
+    revert_req = reck_pb2.RevertRequest(
+        target=TARGET_TEMP_SP,
+        original_value=195.0,
+    )
+    try:
+        response = stub.RevertAction(revert_req)
+        # Broker connected: assert structure
+        assert hasattr(response, "success")
+        assert hasattr(response, "error")
+        assert isinstance(response.success, bool)
+        assert isinstance(response.error, str)
+    except grpc.RpcError as exc:
+        # Broker down: service returns UNAVAILABLE -- acceptable outcome
+        assert exc.code() == grpc.StatusCode.UNAVAILABLE, f"Expected UNAVAILABLE when broker is down, got {exc.code()}"
+
+
+def test_act_revert_restores_original_value(watch_stub_process):
+    """RevertRequest carries original_value; service accepts it without a gRPC-level error (UNAVAILABLE is acceptable)."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.ActServiceStub(channel)
+
+    revert_req = reck_pb2.RevertRequest(
+        target=TARGET_TEMP_SP,
+        original_value=185.0,
+    )
+    try:
+        response = stub.RevertAction(revert_req)
+        assert response.success is True
+    except grpc.RpcError as exc:
+        # UNAVAILABLE means broker is down but the RPC itself was handled correctly
+        assert exc.code() == grpc.StatusCode.UNAVAILABLE, f"Expected UNAVAILABLE when broker is down, got {exc.code()}"
+
+
+# ---------------------------------------------------------------------------
+# Shadow-mode divergence detection test
+# ---------------------------------------------------------------------------
+
+
+def test_guard_verdict_matches_python_checker(watch_stub_process):
+    """Rust GuardService verdict must match Python ConstraintChecker on the same proposal."""
+    import reck_pb2
+    import reck_pb2_grpc
+
+    from guard.checker import ConstraintChecker
+    from reck.events import ActionLifecycle
+    from reck.events import ActionProposal as PyActionProposal
+
+    _, port, channel = watch_stub_process
+    stub = reck_pb2_grpc.GuardServiceStub(channel)
+
+    constraints_path = PROJECT_ROOT / "guard" / "constraints.yaml"
+    checker = ConstraintChecker(constraints_path)
+
+    # Test proposals: (proposed_value, delta, description)
+    cases = [
+        (200.0, 5.0, "valid within range"),
+        (150.0, 5.0, "below minimum"),
+        (240.0, 5.0, "above maximum"),
+        (200.0, 15.0, "rate-of-change exceeded"),
+    ]
+
+    for proposed_value, delta, description in cases:
+        action_id = f"shadow_{description.replace(' ', '_')}"
+
+        # Python checker
+        py_proposal = PyActionProposal(
+            action_id=action_id,
+            source="shadow-test",
+            target=TARGET_TEMP_SP,
+            delta=delta,
+            previous_value=195.0,
+            proposed_value=proposed_value,
+            rule_name="shadow_test",
+            confidence=1.0,
+        )
+        py_result = checker.validate(py_proposal)
+
+        # Rust GuardService
+        proto_proposal = reck_pb2.ActionProposal(
+            action_id=action_id,
+            source="shadow-test",
+            target=TARGET_TEMP_SP,
+            proposed_value=proposed_value,
+            delta=delta,
+            lifecycle=cast(Any, int(ActionLifecycle.PROPOSED.value)),
+        )
+        rust_result = stub.ValidateProposal(proto_proposal)
+
+        # Proto verdict integers: PASS=1, FAIL=2, ESCALATE=3
+        # Python Verdict enum: PASS=1, FAIL=2, ESCALATE=3 (auto() starts at 1)
+        py_verdict_int = py_result.verdict.value
+        rust_verdict_int = rust_result.verdict
+
+        assert py_verdict_int == rust_verdict_int, (
+            f"Shadow divergence on '{description}': "
+            f"Python={py_result.verdict.name} ({py_verdict_int}), "
+            f"Rust verdict={rust_verdict_int}. "
+            f"Proposal: target={TARGET_TEMP_SP}, proposed_value={proposed_value}, delta={delta}"
+        )
