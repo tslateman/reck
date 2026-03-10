@@ -5,7 +5,7 @@ Migrate the performance-critical components of the reasoning loop—`guard` and
 Sympathy** tenet of the Constitution by moving high-throughput and
 safety-critical validation to Rust.
 
-**Status:** Proposed
+**Status:** Phase 4 Active (Phases 1-3 complete)
 
 ## Problem
 
@@ -17,12 +17,12 @@ ISA-95 Level 2.5 control boundary.
 
 ## Scope
 
-| This Plan Is                                         | This Plan Isn't                               |
-| ---------------------------------------------------- | --------------------------------------------- |
-| Porting `guard` logic to Rust                        | Porting `triage` or `reason` (ML remains Py)  |
-| Porting `act` logic to Rust (MQTT publishing)        | Replacing the EMQX broker                     |
-| Multi-service Rust gRPC server                       | Full Rust port of the orchestrator            |
-| Unified YAML constraint loading in Rust              | Replacing JSONL decision logs                 |
+| This Plan Is                                  | This Plan Isn't                              |
+| --------------------------------------------- | -------------------------------------------- |
+| Porting `guard` logic to Rust                 | Porting `triage` or `reason` (ML remains Py) |
+| Porting `act` logic to Rust (MQTT publishing) | Replacing the EMQX broker                    |
+| Multi-service Rust gRPC server                | Full Rust port of the orchestrator           |
+| Unified YAML constraint loading in Rust       | Replacing JSONL decision logs                |
 
 ## Phase 1: Scaffold and Port Guard (Complete)
 
@@ -84,20 +84,42 @@ Wire the full Rust-to-Rust shortcut where possible and update the orchestrator.
 
 ## Phase 4: Hardening & Performance (Active)
 
-Enforce the **Deterministic Backpressure** tenet and verify latency.
+Enforce the **Deterministic Backpressure** tenet and verify robustness under
+failure conditions.
 
 ### Deliverables
 
-- **Structured Rust Logging**: Ensure Rust components emit structured logs for
-  all gRPC and MQTT failures.
-- **Contract Tests**: Update `tests/test_grpc_contract.py` to cover `Guard` and
-  `Act` services.
-- **Latency Baseline**: Measure the end-to-end hot-path latency.
+- **Structured Rust Logging**: Verify all Rust services emit structured `tracing`
+  events for gRPC and MQTT failures. This was a Phase 1 requirement; Phase 4
+  audits and closes any gaps.
+- **Contract Tests**: Update `tests/test_grpc_contract.py` to cover `GuardService`
+  and `ActService` -- including verdict divergence detection and MQTT unavailable
+  error path.
+- **MQTT Backpressure**: `ActService.ExecuteAction` must return
+  `Status::Unavailable` (not silent success) when the broker is unreachable.
+  Track connection state via `Arc<AtomicBool>` or equivalent.
 
 ### Done when
 
-- All 50+ integration tests pass with the Rust services active.
-- Rust binary handles MQTT reconnections and gRPC timeouts gracefully.
+- All integration tests pass with Rust services active.
+- Rust binary handles MQTT reconnections and gRPC timeouts with structured
+  `error_code` logs, not panics or silent failures.
+
+## Architecture Decisions (2026-03-10)
+
+Five decisions resolved before Phase 4 implementation begins:
+
+| Decision                 | Resolution                                                                                                                                                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Snapshot ownership**   | Python holds `previous_value` -- it's in the `ActionProposal` Python creates. `RevertRequest.original_value` is passed by Python on revert. Rust is stateless. |
+| **Guard shadow-mode**    | Inline in Phase 1 (already implemented per history). Python verdict is authoritative until zero divergence on full test suite.                                 |
+| **Backpressure timing**  | Phase 1, day one -- not deferred to Phase 4. Phase 4 audits compliance.                                                                                        |
+| **Baseline latency**     | Skip. Port is justified on correctness and memory safety, not raw speed.                                                                                       |
+| **Rename `watch/rust/`** | Done -- `reck-core/` in use throughout.                                                                                                                        |
+
+Proto confirmed: `ActionAck` does not need `previous_value` -- Python already holds
+it from the `ActionProposal` object. `RevertRequest.original_value` carries it back
+to Rust when needed.
 
 ## Constitution Alignment
 
@@ -109,7 +131,8 @@ Enforce the **Deterministic Backpressure** tenet and verify latency.
 
 ## History
 
-| Date       | Event                                                     |
-| ---------- | --------------------------------------------------------- |
-| 2026-03-08 | Drafted Plan 008 following completion of Tier 3 Counsel.  |
-| 2026-03-08 | Implemented Phases 1-3: Rust Guard and Act services, orchestrator integration, and shadow validation. |
+| Date       | Event                                                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-03-08 | Drafted Plan 008 following completion of Tier 3 Counsel.                                                                                                                               |
+| 2026-03-08 | Implemented Phases 1-3: Rust Guard and Act services, orchestrator integration, and shadow validation.                                                                                  |
+| 2026-03-10 | Spec-out session resolved five pre-implementation decisions. Architecture Decisions section added. Phase 4 scope tightened: latency baseline dropped, MQTT backpressure made explicit. |
