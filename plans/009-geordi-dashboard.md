@@ -5,7 +5,7 @@ pipeline. Establish the **Geordi** foundation by standing up the Redpanda,
 Flink, and TimescaleDB stack, and delivering the first fleet-wide operator 
 dashboards in Grafana.
 
-**Status:** Proposed
+**Status:** Complete
 
 ## Problem
 
@@ -112,7 +112,7 @@ Allow humans to interact with the system via the dashboard.
 - **Agent-Legibility**: The SQL schema must be self-documenting so that 
   Shipyard agents can query it.
 - **Mechanical Sympathy**: Use TimescaleDB hypertables to ensure high-speed 
-  ## Phase 4: Closed-Loop Operator Feedback (Active)
+  ## Phase 4: Closed-Loop Operator Feedback (Complete)
   ...
   ## History
 
@@ -122,4 +122,5 @@ Allow humans to interact with the system via the dashboard.
   | 2026-03-09 | Implemented Phase 1: Redpanda infrastructure and bridge.  |
   | 2026-03-09 | Implemented Phase 2: TimescaleDB sink for signals and decisions. |
   | 2026-03-09 | Implemented Phase 3: Grafana dashboarding and provisioning. |
+| 2026-03-09 | Implemented Phase 4: Closed-loop operator feedback.       |
 

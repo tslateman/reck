@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import psycopg2
-from psycopg2.extras import execute_values
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +37,14 @@ class TimescaleSink:
             return True
         except Exception as exc:
             logger.warning(
-                "timescale.connect.failed",
-                extra={"error": str(exc), "error_code": "TIMESCALE_CONNECTION_FAILED"}
+                "timescale.connect.failed", extra={"error": str(exc), "error_code": "TIMESCALE_CONNECTION_FAILED"}
             )
             self._connected = False
             return False
 
     def _initialize_schema(self) -> None:
         """Create hypertables and audit tables."""
+        assert self._conn is not None
         with self._conn.cursor() as cur:
             # 1. Signals Hypertable
             cur.execute("""
@@ -60,7 +59,7 @@ class TimescaleSink:
             cur.execute("""
                 SELECT create_hypertable('signals', 'timestamp', if_not_exists => TRUE);
             """)
-            
+
             # 2. Decisions Audit Table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS decisions (
@@ -75,16 +74,28 @@ class TimescaleSink:
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(timestamp)")
 
+            # 3. Operator Feedback Table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS operator_feedback (
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    action_id TEXT PRIMARY KEY,
+                    rating INTEGER NOT NULL, -- 1 for success, -1 for failure
+                    comment TEXT,
+                    processed BOOLEAN DEFAULT FALSE
+                );
+            """)
+
     def sink_signal(self, source: str, value: float, unit: str = "") -> None:
         """Insert a single signal sample."""
         if not self._connected:
             return
-        
+
         try:
+            assert self._conn is not None
             with self._conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO signals (timestamp, source, value, unit) VALUES (%s, %s, %s, %s)",
-                    (datetime.now(timezone.utc), source, value, unit)
+                    (datetime.now(timezone.utc), source, value, unit),
                 )
         except Exception as exc:
             logger.warning(f"Failed to sink signal to Timescale: {exc}")
@@ -97,6 +108,7 @@ class TimescaleSink:
         try:
             # Extract key fields for flat columns, store rest in JSONB
             proposal = record.get("proposal", {})
+            assert self._conn is not None
             with self._conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO decisions (timestamp, action_id, source, rule_name, proposed_value, outcome, payload)
@@ -109,11 +121,43 @@ class TimescaleSink:
                         proposal.get("rule_name", "unknown"),
                         proposal.get("proposed_value"),
                         str(record.get("outcome", "unknown")),
-                        json.dumps(record)
-                    )
+                        json.dumps(record),
+                    ),
                 )
         except Exception as exc:
             logger.warning(f"Failed to sink decision to Timescale: {exc}")
+
+    def get_pending_feedback(self) -> list[dict[str, Any]]:
+        """Retrieve all unprocessed operator feedback."""
+        if not self._connected:
+            return []
+
+        try:
+            assert self._conn is not None
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    """SELECT f.action_id, f.rating, d.rule_name
+                       FROM operator_feedback f
+                       JOIN decisions d ON f.action_id = d.action_id
+                       WHERE f.processed = FALSE"""
+                )
+                rows = cur.fetchall()
+                return [{"action_id": r[0], "rating": r[1], "rule_name": r[2]} for r in rows]
+        except Exception as exc:
+            logger.warning(f"Failed to fetch pending feedback: {exc}")
+            return []
+
+    def mark_feedback_processed(self, action_id: str) -> None:
+        """Mark feedback as processed to avoid double-counting."""
+        if not self._connected:
+            return
+
+        try:
+            assert self._conn is not None
+            with self._conn.cursor() as cur:
+                cur.execute("UPDATE operator_feedback SET processed = TRUE WHERE action_id = %s", (action_id,))
+        except Exception as exc:
+            logger.warning(f"Failed to mark feedback as processed: {exc}")
 
     def close(self) -> None:
         if self._conn:

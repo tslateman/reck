@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from dataclasses import asdict
 from pathlib import Path
 
 from act.executor import ActClient, ActionExecutor
@@ -23,8 +24,6 @@ from ledger.archive import DecisionArchive
 from memory.baselines import BaselineStore
 from memory.patterns import PatternMemory
 from monitor.watcher import ActionMonitor
-from reck.infra.bridge import RedpandaBridge
-from reck.infra.timescale import TimescaleSink
 from reason.graph import CausalGraph
 from reason.inference import InferenceEngine
 from reck.events import (
@@ -34,6 +33,8 @@ from reck.events import (
     SignalEvent,
     Verdict,
 )
+from reck.infra.bridge import RedpandaBridge
+from reck.infra.timescale import TimescaleSink
 from reck.lore import emit_escalation, notify_cmux
 from reck.metrics import tracer
 from rules.confidence import RuleConfidence
@@ -350,11 +351,33 @@ async def run_loop(*, anomaly: bool = False) -> None:
                         data["count"],
                     )
 
+    async def process_feedback() -> None:
+        """Periodically poll for operator feedback and update confidence."""
+        while True:
+            await asyncio.sleep(30.0)  # Check every 30s
+            pending = timescale.get_pending_feedback()
+            for f in pending:
+                rule_name = f["rule_name"]
+                rating = f["rating"]
+                success = rating > 0
+
+                logger.info("Processing operator feedback: %s -> %s", rule_name, "SUCCESS" if success else "FAILURE")
+
+                # Update Bayesian confidence
+                confidence.update(rule_name, success)
+                # Update pattern outcome
+                # (We don't have the original anomaly event here, but we could
+                # retrieve it from Lore/Timescale if needed. For now,
+                # rule confidence is the primary lever.)
+
+                timescale.mark_feedback_processed(f["action_id"])
+
     # --- Start tasks ---
     tasks = [
         asyncio.create_task(plant.run(callback=signal_queue, interval=1.0)),
         asyncio.create_task(process_signals()),
         asyncio.create_task(log_stats()),
+        asyncio.create_task(process_feedback()),
     ]
     if anomaly:
         tasks.append(asyncio.create_task(inject_drift()))

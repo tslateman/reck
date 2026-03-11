@@ -23,6 +23,7 @@ from memory.patterns import PatternMemory
 from reason.discovery import DiscoveryEngine
 from reason.graph import CausalGraph
 from reason.inference import InferenceEngine
+from reck.infra.timescale import TimescaleSink
 from reck.metrics import tracer
 from rules.confidence import RuleConfidence
 from rules.promotion import RulePromoter
@@ -47,6 +48,13 @@ def main() -> None:
     promote_parser.add_argument("--effect", type=float, default=1.0, help="The estimated effect size")
 
     sub.add_parser("stats", help="Show rule performance and confidence summary")
+
+    feedback_parser = sub.add_parser("feedback", help="Inject operator feedback for a fix")
+    feedback_parser.add_argument("--id", type=str, required=True, help="Action ID to rate")
+    feedback_parser.add_argument(
+        "--rating", type=int, choices=[1, -1], required=True, help="1 for success, -1 for failure"
+    )
+    feedback_parser.add_argument("--comment", type=str, help="Optional feedback comment")
 
     sub.add_parser("bench", help="Show hot-path latency statistics (ms)")
 
@@ -138,6 +146,29 @@ def main() -> None:
             rule_name, alpha, beta, last_fired = r
             conf = alpha / (alpha + beta)
             print(f"{rule_name:<30} | {conf:10.2f} | {alpha:<5.0f} | {beta:<5.0f} | {last_fired or 'Never':<26}")
+
+    elif args.command == "feedback":
+        timescale = TimescaleSink()
+        if timescale.connect():
+            try:
+                assert timescale._conn is not None
+                with timescale._conn.cursor() as cur:
+                    cur.execute(
+                        """INSERT INTO operator_feedback (action_id, rating, comment)
+                           VALUES (%s, %s, %s)
+                           ON CONFLICT (action_id) DO UPDATE SET
+                           rating = excluded.rating,
+                           comment = excluded.comment,
+                           processed = FALSE""",
+                        (args.id, args.rating, args.comment),
+                    )
+                print(f"Feedback recorded for action {args.id}")
+            except Exception as e:
+                print(f"Failed to record feedback: {e}")
+            finally:
+                timescale.close()
+        else:
+            print("Failed to connect to TimescaleDB.")
 
     elif args.command == "bench":
         stats = tracer.load_stats(PROJECT_ROOT / "data" / "latency.json")

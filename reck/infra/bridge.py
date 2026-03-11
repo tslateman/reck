@@ -7,18 +7,15 @@ Fulfills the 'Durable Log' requirement for high-fidelity auditing and replay.
 from __future__ import annotations
 
 import logging
-import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import paho.mqtt.client as mqtt
 from confluent_kafka import Producer
-from google.protobuf import json_format
 
 # Add proto directory to path for generated stubs
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "proto"))
 
-from proto.reck_pb2 import SignalEvent
 from paho.mqtt.enums import CallbackAPIVersion
 
 logger = logging.getLogger(__name__)
@@ -40,14 +37,16 @@ class RedpandaBridge:
     ) -> None:
         self._mqtt_host = mqtt_host
         self._mqtt_port = mqtt_port
-        
+
         # Kafka Producer configuration
-        self._producer = Producer({
-            "bootstrap.servers": kafka_bootstrap,
-            "client.id": "reck-bridge",
-            "acks": "all",  # Ensure durability
-        })
-        
+        self._producer = Producer(
+            {
+                "bootstrap.servers": kafka_bootstrap,
+                "client.id": "reck-bridge",
+                "acks": "all",  # Ensure durability
+            }
+        )
+
         # MQTT Client configuration
         self._mqtt = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2)
         self._mqtt.on_message = self._on_message
@@ -68,21 +67,15 @@ class RedpandaBridge:
         try:
             # We assume messages are either raw values or JSON-serialized SignalEvents
             # For the bridge, we just forward the raw payload to Kafka with the topic as key
-            
+
             self._producer.produce(
-                topic=KAFKA_TOPIC,
-                key=msg.topic,
-                value=msg.payload,
-                on_delivery=self._delivery_report
+                topic=KAFKA_TOPIC, key=msg.topic, value=msg.payload, on_delivery=self._delivery_report
             )
             # Trigger delivery callbacks (async)
             self._producer.poll(0)
-            
+
         except Exception as exc:
-            logger.warning(
-                "bridge.forward.failed",
-                extra={"topic": msg.topic, "error": str(exc)}
-            )
+            logger.warning("bridge.forward.failed", extra={"topic": msg.topic, "error": str(exc)})
 
     def _delivery_report(self, err, msg):
         """Callback for Kafka delivery reports."""
@@ -96,8 +89,7 @@ class RedpandaBridge:
             self._mqtt.loop_start()
         except Exception as exc:
             logger.warning(
-                "bridge.mqtt.connection_failed",
-                extra={"error": str(exc), "error_code": "BRIDGE_MQTT_FAILED"}
+                "bridge.mqtt.connection_failed", extra={"error": str(exc), "error_code": "BRIDGE_MQTT_FAILED"}
             )
 
     def stop(self) -> None:
