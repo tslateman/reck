@@ -34,7 +34,7 @@ from reck.events import (
     SignalEvent,
     Verdict,
 )
-from reck.lore import emit_escalation
+from reck.lore import emit_escalation, notify_cmux
 from reck.metrics import tracer
 from rules.confidence import RuleConfidence
 from rules.engine import RuleEngine
@@ -139,6 +139,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
             # Check breaker
             if breaker.tripped(LINE_ID):
                 logger.error("Circuit breaker tripped for %s, skipping", LINE_ID)
+                notify_cmux("Reck: cascade halt", f"{LINE_ID}: 3 consecutive failures")
                 # Tier 2: Why are we cascading?
                 hypotheses = []
                 neighbors = graph.get_neighbors(anomaly_event.source)

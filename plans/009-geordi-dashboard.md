@@ -67,7 +67,7 @@ Stand up the partitioned time-series store and implement automated sink logic.
 - Decisions, including Tier 2 causal rankings and Tier 3 narratives, are 
   searchable via SQL.
 
-## Phase 3: Interim Geordi (Grafana) (Active)
+## Phase 3: Interim Geordi (Grafana) (Complete)
 
 Build the operator interface using Grafana as the "Geordi" placeholder.
 
@@ -112,12 +112,14 @@ Allow humans to interact with the system via the dashboard.
 - **Agent-Legibility**: The SQL schema must be self-documenting so that 
   Shipyard agents can query it.
 - **Mechanical Sympathy**: Use TimescaleDB hypertables to ensure high-speed 
-  ingestion without locking the hot-path.
+  ## Phase 4: Closed-Loop Operator Feedback (Active)
+  ...
+  ## History
 
-## History
+  | Date       | Event                                                     |
+  | ---------- | --------------------------------------------------------- |
+  | 2026-03-08 | Drafted Plan 009 following completion of Rust Hot-Path.   |
+  | 2026-03-09 | Implemented Phase 1: Redpanda infrastructure and bridge.  |
+  | 2026-03-09 | Implemented Phase 2: TimescaleDB sink for signals and decisions. |
+  | 2026-03-09 | Implemented Phase 3: Grafana dashboarding and provisioning. |
 
-| Date       | Event                                                     |
-| ---------- | --------------------------------------------------------- |
-| 2026-03-08 | Drafted Plan 009 following completion of Rust Hot-Path.   |
-| 2026-03-09 | Implemented Phase 1: Redpanda infrastructure and bridge.  |
-| 2026-03-09 | Implemented Phase 2: TimescaleDB sink for signals and decisions. |

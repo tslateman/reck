@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 LORE_BIN = Path.home() / "dev" / "lore" / "lore.sh"
 PRAXIS_BIN = Path("/Users/tslater/dev/praxis/bin/praxis")
+CMUX_BIN = Path("/Applications/cmux.app/Contents/Resources/bin/cmux")
 
 
 def _spawn(args: list[str]) -> None:
@@ -40,3 +42,10 @@ def emit_escalation(source: str, reason: str, rule_name: str = "") -> None:
     """Notify Praxis of an escalation or circuit-breaker trip."""
     payload = json.dumps({"source": source, "reason": reason, "rule_name": rule_name})
     _spawn([str(PRAXIS_BIN), "emit", "--from-triggers", payload])
+
+
+def notify_cmux(title: str, body: str) -> None:
+    """Push a cmux notification. Fire-and-forget, guarded on CMUX_WORKSPACE_ID."""
+    if not os.environ.get("CMUX_WORKSPACE_ID") or not CMUX_BIN.is_file():
+        return
+    _spawn([str(CMUX_BIN), "notify", "--title", title, "--body", body])

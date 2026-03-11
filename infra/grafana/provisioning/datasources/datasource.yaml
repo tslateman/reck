@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    type: postgres
+    url: timescaledb:5432
+    database: reck
+    user: reck
+    secureJsonData:
+      password: password
+    jsonData:
+      sslmode: 'disable'
+      postgresVersion: 1600 # 16.0
+      timescaledb: true
+    isDefault: true

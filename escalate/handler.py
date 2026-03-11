@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from reck.events import ActionProposal, AnomalyEvent, ConstraintResult
-from reck.lore import emit_escalation
+from reck.lore import emit_escalation, notify_cmux
 from reck.serialize import default_serializer
 
 
@@ -53,3 +53,4 @@ class EscalationHandler:
             reason=reason,
             rule_name=proposal.rule_name if proposal else "",
         )
+        notify_cmux("Reck: escalation", f"{reason} on {anomaly.source}")

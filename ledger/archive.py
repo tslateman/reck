@@ -12,7 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from reck.events import DecisionRecord
-from reck.lore import write_decision, write_failure
+from reck.lore import notify_cmux, write_decision, write_failure
 from reck.serialize import default_serializer
 
 
@@ -38,6 +38,10 @@ class DecisionArchive:
                 f"Reck applied {rule} on {src}: delta {decision.proposal.delta:+.1f} -> CONFIRMED",
                 tags=f"reck,decision,{rule}",
             )
+            notify_cmux(
+                f"Reck: {decision.outcome.name}",
+                f"{rule} on {src}: delta {decision.proposal.delta:+.1f}",
+            )
         elif decision.outcome.name == "REVERTED":
             rule = decision.proposal.rule_name
             src = decision.proposal.source
@@ -46,6 +50,10 @@ class DecisionArchive:
                 "ActionReverted",
                 f"Reck reverted {rule} on {src}: KPI delta {delta:+.2f}",
                 tags=f"reck,failure,{rule}",
+            )
+            notify_cmux(
+                f"Reck: {decision.outcome.name}",
+                f"{rule} on {src}: delta {delta:+.2f}",
             )
 
     def query(self, last_n: int = 10) -> list[dict]:
