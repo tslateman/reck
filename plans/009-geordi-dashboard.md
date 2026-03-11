@@ -28,7 +28,7 @@ ground-truth needed for Tier 2/3 reasoning.
 | Grafana Dashboarding (Interim Geordi)                | Real-time video/vision integration            |
 | Flink SQL stubs (Streaming aggregations)             | Replacing the Python orchestrator logic       |
 
-## Phase 1: The Durable Log (Redpanda)
+## Phase 1: The Durable Log (Redpanda) (Complete)
 
 Replace the internal signal queue with a durable Redpanda topic tree.
 
@@ -47,7 +47,7 @@ Replace the internal signal queue with a durable Redpanda topic tree.
 - Reck can be restarted and "catch up" by replaying missed messages from the 
   topic offset.
 
-## Phase 2: Time-Series Foundation (TimescaleDB)
+## Phase 2: Time-Series Foundation (TimescaleDB) (Active)
 
 Stand up the partitioned time-series store and implement automated sink logic.
 
@@ -119,3 +119,4 @@ Allow humans to interact with the system via the dashboard.
 | Date       | Event                                                     |
 | ---------- | --------------------------------------------------------- |
 | 2026-03-08 | Drafted Plan 009 following completion of Rust Hot-Path.   |
+| 2026-03-09 | Implemented Phase 1: Redpanda infrastructure and bridge.  |
