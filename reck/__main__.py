@@ -23,6 +23,7 @@ from ledger.archive import DecisionArchive
 from memory.baselines import BaselineStore
 from memory.patterns import PatternMemory
 from monitor.watcher import ActionMonitor
+from reck.infra.bridge import RedpandaBridge
 from reason.graph import CausalGraph
 from reason.inference import InferenceEngine
 from reck.events import (
@@ -82,6 +83,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
     escalation = EscalationHandler(data_dir=PROJECT_ROOT / "data")
     archive = DecisionArchive(data_dir=PROJECT_ROOT / "data")
     watch_client = WatchClient()
+    bridge = RedpandaBridge()
+    bridge.start()
 
     signal_queue: asyncio.Queue[SignalEvent] = asyncio.Queue()
 
@@ -355,6 +358,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
     for t in tasks:
         t.cancel()
     tracer.save_stats(PROJECT_ROOT / "data" / "latency.json")
+    bridge.stop()
     watch_client.close()
     guard_client.close()
     act_client.close()

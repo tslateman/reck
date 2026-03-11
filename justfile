@@ -78,13 +78,13 @@ ci:
 
 # --- Infrastructure ---
 
-# Start EMQX broker
-broker:
-    docker run -d --name reck-emqx -p 1883:1883 -p 18083:18083 emqx/emqx:latest
+# Start all infrastructure (EMQX, Redpanda)
+infra:
+    docker compose up -d
 
-# Stop EMQX broker
-broker-stop:
-    docker stop reck-emqx && docker rm reck-emqx
+# Stop all infrastructure
+infra-stop:
+    docker compose down
 
 # --- Rust Hot-Path ---
 

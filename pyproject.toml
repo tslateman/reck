@@ -15,6 +15,7 @@ dependencies = [
     "causal-learn>=0.1.4.4",
     "networkx>=3.6.1",
     "pandas>=3.0.1",
+    "confluent-kafka>=2.13.2",
 ]
 
 [project.optional-dependencies]
