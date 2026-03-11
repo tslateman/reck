@@ -47,7 +47,7 @@ Replace the internal signal queue with a durable Redpanda topic tree.
 - Reck can be restarted and "catch up" by replaying missed messages from the 
   topic offset.
 
-## Phase 2: Time-Series Foundation (TimescaleDB) (Active)
+## Phase 2: Time-Series Foundation (TimescaleDB) (Complete)
 
 Stand up the partitioned time-series store and implement automated sink logic.
 
@@ -67,7 +67,7 @@ Stand up the partitioned time-series store and implement automated sink logic.
 - Decisions, including Tier 2 causal rankings and Tier 3 narratives, are 
   searchable via SQL.
 
-## Phase 3: Interim Geordi (Grafana)
+## Phase 3: Interim Geordi (Grafana) (Active)
 
 Build the operator interface using Grafana as the "Geordi" placeholder.
 
@@ -120,3 +120,4 @@ Allow humans to interact with the system via the dashboard.
 | ---------- | --------------------------------------------------------- |
 | 2026-03-08 | Drafted Plan 009 following completion of Rust Hot-Path.   |
 | 2026-03-09 | Implemented Phase 1: Redpanda infrastructure and bridge.  |
+| 2026-03-09 | Implemented Phase 2: TimescaleDB sink for signals and decisions. |

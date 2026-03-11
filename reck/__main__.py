@@ -24,6 +24,7 @@ from memory.baselines import BaselineStore
 from memory.patterns import PatternMemory
 from monitor.watcher import ActionMonitor
 from reck.infra.bridge import RedpandaBridge
+from reck.infra.timescale import TimescaleSink
 from reason.graph import CausalGraph
 from reason.inference import InferenceEngine
 from reck.events import (
@@ -85,6 +86,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
     watch_client = WatchClient()
     bridge = RedpandaBridge()
     bridge.start()
+    timescale = TimescaleSink()
+    timescale.connect()
 
     signal_queue: asyncio.Queue[SignalEvent] = asyncio.Queue()
 
@@ -102,6 +105,9 @@ async def run_loop(*, anomaly: bool = False) -> None:
         while True:
             event = await signal_queue.get()
             confidence.apply_pending_decay()
+
+            # Archive signal (Phase 2)
+            timescale.sink_signal(event.source, event.value, event.unit)
 
             # Update baseline
             baselines.update_baseline(event.source, event.value)
@@ -221,6 +227,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
                     action_chain_id=proposal.action_chain_id,
                 )
                 archive.record(record)
+                timescale.sink_decision(asdict(record))
                 continue
 
             if gate_decision == GateDecision.ESCALATE:
@@ -268,6 +275,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
                     escalation_reason=gate_reason,
                 )
                 archive.record(record)
+                timescale.sink_decision(asdict(record))
                 continue
 
             # Execute
@@ -310,6 +318,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 monitoring_duration_s=result.duration_s,
             )
             archive.record(record)
+            timescale.sink_decision(asdict(record))
 
     async def inject_drift(delay: float = 10.0) -> None:
         """After delay, drift temperature setpoint to trigger anomaly."""
@@ -359,6 +368,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
         t.cancel()
     tracer.save_stats(PROJECT_ROOT / "data" / "latency.json")
     bridge.stop()
+    timescale.close()
     watch_client.close()
     guard_client.close()
     act_client.close()
