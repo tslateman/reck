@@ -104,6 +104,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
 
     async def process_signals() -> None:
         """Main processing loop: drain signal queue through the full chain."""
+        gear_history: dict[str, int] = {}  # rule_name -> last gear value
         while True:
             event = await signal_queue.get()
             confidence.apply_pending_decay()
@@ -209,6 +210,18 @@ async def run_loop(*, anomaly: bool = False) -> None:
             # Gate
             rule_confidence = confidence.get(proposal.rule_name)
             current_gear = select_gear(rule_confidence)
+
+            # Detect gear transitions
+            prior_gear = gear_history.get(proposal.rule_name)
+            if prior_gear is None or prior_gear != current_gear.value:
+                timescale.sink_gear_transition(
+                    proposal.rule_name,
+                    prior_gear,
+                    current_gear.value,
+                    rule_confidence,
+                )
+            gear_history[proposal.rule_name] = current_gear.value
+
             confidence.record_fired(proposal.rule_name)
             has_precedent = archive.check_precedent(proposal.source, proposal.rule_name)
             gate_decision, gate_reason = gatekeeper.decide(
