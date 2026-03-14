@@ -85,6 +85,21 @@ class TimescaleSink:
                 );
             """)
 
+            # 4. Idempotent column additions for gear model (Plan 010)
+            cur.execute("ALTER TABLE decisions ADD COLUMN IF NOT EXISTS gear INTEGER")
+            cur.execute("ALTER TABLE decisions ADD COLUMN IF NOT EXISTS rule_confidence DOUBLE PRECISION")
+
+            # 5. Gear Transitions Table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS gear_transitions (
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    rule_name TEXT NOT NULL,
+                    gear_before INTEGER,
+                    gear_after INTEGER NOT NULL,
+                    confidence DOUBLE PRECISION NOT NULL
+                );
+            """)
+
     def sink_signal(self, source: str, value: float, unit: str = "") -> None:
         """Insert a single signal sample."""
         if not self._connected:
@@ -108,12 +123,18 @@ class TimescaleSink:
         try:
             # Extract key fields for flat columns, store rest in JSONB
             proposal = record.get("proposal", {})
+            gear = record.get("gear")
+            rule_confidence = record.get("confidence_at_decision")
             assert self._conn is not None
             with self._conn.cursor() as cur:
                 cur.execute(
-                    """INSERT INTO decisions (timestamp, action_id, source, rule_name, proposed_value, outcome, payload)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (action_id) DO NOTHING""",
+                    """INSERT INTO decisions
+                       (timestamp, action_id, source, rule_name,
+                        proposed_value, outcome, payload, gear, rule_confidence)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (action_id) DO UPDATE SET
+                       gear = excluded.gear,
+                       rule_confidence = excluded.rule_confidence""",
                     (
                         record.get("timestamp", datetime.now(timezone.utc).isoformat()),
                         record.get("action_id", "unknown"),
@@ -122,10 +143,34 @@ class TimescaleSink:
                         proposal.get("proposed_value"),
                         str(record.get("outcome", "unknown")),
                         json.dumps(record),
+                        gear,
+                        rule_confidence,
                     ),
                 )
         except Exception as exc:
             logger.warning(f"Failed to sink decision to Timescale: {exc}")
+
+    def sink_gear_transition(
+        self,
+        rule_name: str,
+        gear_before: int | None,
+        gear_after: int,
+        confidence: float,
+    ) -> None:
+        """Record a gear transition for a rule."""
+        if not self._connected:
+            return
+        try:
+            assert self._conn is not None
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO gear_transitions
+                       (timestamp, rule_name, gear_before, gear_after, confidence)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (datetime.now(timezone.utc), rule_name, gear_before, gear_after, confidence),
+                )
+        except Exception as exc:
+            logger.warning(f"Failed to sink gear transition: {exc}")
 
     def get_pending_feedback(self) -> list[dict[str, Any]]:
         """Retrieve all unprocessed operator feedback."""

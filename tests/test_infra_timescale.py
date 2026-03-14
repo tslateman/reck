@@ -74,8 +74,12 @@ def test_timescale_sink_decision() -> None:
 
         # Verify insert call
         mock_cur.execute.assert_any_call(
-            """INSERT INTO decisions (timestamp, action_id, source, rule_name, proposed_value, outcome, payload)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (action_id) DO NOTHING""",
+            """INSERT INTO decisions
+                       (timestamp, action_id, source, rule_name,
+                        proposed_value, outcome, payload, gear, rule_confidence)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (action_id) DO UPDATE SET
+                       gear = excluded.gear,
+                       rule_confidence = excluded.rule_confidence""",
             ANY,
         )

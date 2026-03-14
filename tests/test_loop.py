@@ -127,10 +127,19 @@ def test_full_chain_anomaly_detected_and_fixed(
     )
     archive.record(seed_record)
 
+    from dataclasses import asdict
+
+    assert "gear" in asdict(seed_record)
+
     has_precedent = archive.check_precedent(proposal.source, proposal.rule_name)
     assert has_precedent
 
-    gate_decision, reason = gatekeeper.decide(proposal, constraint, has_precedent)
+    gate_decision, _reason = gatekeeper.decide(
+        proposal,
+        constraint,
+        has_precedent,
+        rule_confidence=0.90,
+    )
     assert gate_decision == GateDecision.GO
 
 
@@ -166,7 +175,7 @@ def test_gate_blocks_on_guard_failure(checker: ConstraintChecker) -> None:
         confidence=0.9,
     )
     constraint = checker.validate(proposal)
-    decision, reason = gatekeeper.decide(proposal, constraint, has_precedent=True)
+    decision, _reason = gatekeeper.decide(proposal, constraint, has_precedent=True)
     assert decision == GateDecision.NO_GO
 
 
@@ -287,3 +296,86 @@ def test_executor_stores_snapshot_and_reverts() -> None:
 
     executor.revert(proposal.action_id, mock_publish)
     assert published[-1] == ("test/temp_sp/cmd", 200.0)
+
+
+# --- Test 7: Gear flows through decision chain ---
+
+
+def test_gear_flows_through_chain(
+    tmp_path: Path,
+    archive: DecisionArchive,
+) -> None:
+    """Gear flows through the decision chain: high confidence -> high gear -> GO."""
+    from dataclasses import asdict
+
+    from reck.gear import Gear, select_gear
+    from rules.confidence import RuleConfidence
+
+    gatekeeper = GateKeeper()
+
+    # Seed confidence with 12 successes: Beta(13,1) mean = 0.93 -> 4th gear
+    confidence = RuleConfidence(db_path=tmp_path / "confidence.db")
+    for _ in range(12):
+        confidence.update("proven_rule", success=True)
+    rule_conf = confidence.get("proven_rule")
+    assert rule_conf > 0.85, f"Expected >0.85, got {rule_conf}"
+
+    gear = select_gear(rule_conf)
+    assert gear == Gear.FOURTH
+
+    proposal = ActionProposal(
+        source="site1/area1/line1/cell1/extruder/temperature",
+        target="site1/area1/line1/cell1/extruder/temperature_sp",
+        delta=-5.0,
+        previous_value=220.0,
+        proposed_value=215.0,
+        rule_name="proven_rule",
+        confidence=rule_conf,
+    )
+    constraint = ConstraintResult(action_id=proposal.action_id, verdict=Verdict.PASS)
+
+    # Seed precedent
+    seed = DecisionRecord(
+        action_id="seed",
+        anomaly=AnomalyEvent(
+            source="site1/area1/line1/cell1/extruder/temperature",
+            value=220.0,
+            baseline_mean=200.0,
+            baseline_stddev=2.0,
+            deviation_sigma=10.0,
+        ),
+        proposal=proposal,
+        constraint_check=constraint,
+        gate_decision=GateDecision.GO,
+        outcome=ActionLifecycle.CONFIRMED,
+        action_chain_id="seed-chain",
+    )
+    archive.record(seed)
+    has_precedent = archive.check_precedent(proposal.source, proposal.rule_name)
+
+    decision, reason = gatekeeper.decide(
+        proposal,
+        constraint,
+        has_precedent,
+        rule_confidence=rule_conf,
+        gear=gear,
+    )
+    assert decision == GateDecision.GO
+    assert "4th gear" in reason
+
+    # Verify gear stamps on record
+    record = DecisionRecord(
+        action_id=proposal.action_id,
+        anomaly=seed.anomaly,
+        proposal=proposal,
+        constraint_check=constraint,
+        gate_decision=decision,
+        outcome=ActionLifecycle.CONFIRMED,
+        gear=gear.value,
+        confidence_at_decision=rule_conf,
+    )
+    d = asdict(record)
+    assert d["gear"] == 4
+    assert d["confidence_at_decision"] > 0.85
+
+    confidence.close()

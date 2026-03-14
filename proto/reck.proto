@@ -94,6 +94,8 @@ message DecisionRecord {
   double kpi_before = 10;
   double kpi_after = 11;
   int32 monitoring_duration_s = 12;
+  int32 gear = 13;
+  double confidence_at_decision = 14;
 }
 
 enum GateDecision {

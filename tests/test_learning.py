@@ -67,7 +67,7 @@ def test_confidence_drops_below_threshold_on_failures(
 
 
 def test_gate_escalates_on_low_confidence() -> None:
-    """Gate returns ESCALATE with 'low confidence' when rule_confidence < 0.3."""
+    """Gate returns ESCALATE when rule_confidence puts gear in 1st (< 0.50)."""
     gatekeeper = GateKeeper()
     proposal = ActionProposal(
         source="test/signal",
@@ -84,7 +84,7 @@ def test_gate_escalates_on_low_confidence() -> None:
     )
     decision, reason = gatekeeper.decide(proposal, constraint, has_precedent=True, rule_confidence=0.2)
     assert decision == GateDecision.ESCALATE
-    assert "low confidence" in reason
+    assert "1st gear" in reason
 
 
 # --- Test 5: Decay moves confidence toward 0.5 ---

@@ -120,14 +120,14 @@ def test_gate_pattern_approval(anomaly: AnomalyEvent) -> None:
     assert decision == GateDecision.ESCALATE
     assert "novel" in reason
 
-    # Case B: Known high-success pattern -> GO (even if no specific ledger precedent)
+    # Case B: Known high-success pattern, with precedent -> GO via gear model
     history_known = {"count": 10, "success_rate": 0.9}
     decision, reason = gatekeeper.decide(
         proposal,
         constraint,
-        has_precedent=False,
+        has_precedent=True,
         rule_confidence=0.9,
         pattern_history=history_known,
     )
     assert decision == GateDecision.GO
-    assert "pattern match" in reason
+    assert "4th gear" in reason

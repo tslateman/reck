@@ -106,4 +106,6 @@ class DecisionRecord:
     kpi_before: float = 0.0
     kpi_after: float = 0.0
     monitoring_duration_s: int = 0
+    gear: int = 0
+    confidence_at_decision: float = 0.0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

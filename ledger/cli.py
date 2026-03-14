@@ -23,6 +23,7 @@ from memory.patterns import PatternMemory
 from reason.discovery import DiscoveryEngine
 from reason.graph import CausalGraph
 from reason.inference import InferenceEngine
+from reck.gear import select_gear
 from reck.infra.timescale import TimescaleSink
 from reck.metrics import tracer
 from rules.confidence import RuleConfidence
@@ -74,16 +75,17 @@ def main() -> None:
         if not records:
             print("No decisions recorded.")
             return
-        print(f"{'TIMESTAMP':<26} | {'SOURCE':<30} | {'RULE':<20} | {'OUTCOME':<10} | {'CHAIN':<12}")
-        print("-" * 110)
+        print(f"{'TIMESTAMP':<26} | {'SOURCE':<30} | {'RULE':<20} | {'OUTCOME':<10} | {'GEAR':<4} | {'CHAIN':<12}")
+        print("-" * 116)
         for rec in records:
             ts = rec.get("timestamp", "?")
             proposal = rec.get("proposal", {})
             source = proposal.get("source", "?")
             rule = proposal.get("rule_name", "?")
             outcome = rec.get("outcome", "?")
+            gear = rec.get("gear", 0)
             chain_id = rec.get("action_chain_id", "?")
-            print(f"{ts:<26} | {source:<30} | {rule:<20} | {outcome:<10} | {chain_id:<12}")
+            print(f"{ts:<26} | {source:<30} | {rule:<20} | {outcome:<10} | {gear:<4} | {chain_id:<12}")
 
     elif args.command == "patterns":
         memory = PatternMemory(db_path=PROJECT_ROOT / "data" / "patterns.db")
@@ -140,12 +142,14 @@ def main() -> None:
         if not rows:
             print("No rule stats available.")
             return
-        print(f"{'RULE':<30} | {'CONFIDENCE':<10} | {'ALPHA':<5} | {'BETA':<5} | {'LAST FIRED':<26}")
-        print("-" * 90)
+        print(f"{'RULE':<30} | {'CONFIDENCE':<10} | {'GEAR':<4} | {'ALPHA':<5} | {'BETA':<5} | {'LAST FIRED':<26}")
+        print("-" * 97)
         for r in rows:
             rule_name, alpha, beta, last_fired = r
             conf = alpha / (alpha + beta)
-            print(f"{rule_name:<30} | {conf:10.2f} | {alpha:<5.0f} | {beta:<5.0f} | {last_fired or 'Never':<26}")
+            gear = select_gear(conf)
+            fired = last_fired or "Never"
+            print(f"{rule_name:<30} | {conf:10.2f} | {gear.value:<4} | {alpha:<5.0f} | {beta:<5.0f} | {fired:<26}")
 
     elif args.command == "feedback":
         timescale = TimescaleSink()

@@ -39,6 +39,16 @@ def test_signal_event_proto_python_aligned() -> None:
     assert not missing, f"Python fields missing from proto: {missing}"
 
 
+def test_decision_record_has_gear_fields() -> None:
+    """DecisionRecord has gear and confidence_at_decision in both proto and Python."""
+    proto = _proto_fields("DecisionRecord")
+    py = {f.name for f in dataclasses.fields(DecisionRecord)}
+    assert "gear" in proto, "gear missing from proto"
+    assert "gear" in py, "gear missing from Python dataclass"
+    assert "confidence_at_decision" in proto, "confidence_at_decision missing from proto"
+    assert "confidence_at_decision" in py, "confidence_at_decision missing from Python dataclass"
+
+
 def test_action_lifecycle_enum_aligned() -> None:
     """All Python ActionLifecycle values exist in the proto enum."""
     text = (PROJECT_ROOT / "proto" / "reck.proto").read_text()

@@ -33,6 +33,7 @@ from reck.events import (
     SignalEvent,
     Verdict,
 )
+from reck.gear import select_gear
 from reck.infra.bridge import RedpandaBridge
 from reck.infra.timescale import TimescaleSink
 from reck.lore import emit_escalation, notify_cmux
@@ -207,6 +208,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
 
             # Gate
             rule_confidence = confidence.get(proposal.rule_name)
+            current_gear = select_gear(rule_confidence)
             confidence.record_fired(proposal.rule_name)
             has_precedent = archive.check_precedent(proposal.source, proposal.rule_name)
             gate_decision, gate_reason = gatekeeper.decide(
@@ -215,6 +217,7 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 has_precedent,
                 rule_confidence=rule_confidence,
                 pattern_history=history,
+                gear=current_gear,
             )
 
             if gate_decision == GateDecision.NO_GO:
@@ -227,6 +230,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
                     gate_decision=gate_decision,
                     outcome=ActionLifecycle.FAILED,
                     action_chain_id=proposal.action_chain_id,
+                    gear=current_gear.value,
+                    confidence_at_decision=rule_confidence,
                 )
                 archive.record(record)
                 timescale.sink_decision(asdict(record))
@@ -275,6 +280,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
                     outcome=ActionLifecycle.PROPOSED,
                     action_chain_id=proposal.action_chain_id,
                     escalation_reason=gate_reason,
+                    gear=current_gear.value,
+                    confidence_at_decision=rule_confidence,
                 )
                 archive.record(record)
                 timescale.sink_decision(asdict(record))
@@ -318,6 +325,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
                 kpi_before=result.kpi_before,
                 kpi_after=result.kpi_after,
                 monitoring_duration_s=result.duration_s,
+                gear=current_gear.value,
+                confidence_at_decision=rule_confidence,
             )
             archive.record(record)
             timescale.sink_decision(asdict(record))

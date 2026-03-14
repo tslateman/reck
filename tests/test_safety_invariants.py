@@ -20,6 +20,7 @@ from reck.events import (
     GateDecision,
     Verdict,
 )
+from reck.gear import select_gear
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -106,9 +107,9 @@ def test_gate_never_go_without_precedent() -> None:
 # --- Gate: confidence threshold is enforced ---
 
 
-@pytest.mark.parametrize("confidence", [0.0, 0.1, 0.29])
+@pytest.mark.parametrize("confidence", [0.0, 0.1, 0.29, 0.49])
 def test_gate_never_go_below_confidence_threshold(confidence: float) -> None:
-    """Gate never produces GO when confidence is below the 0.3 threshold."""
+    """Gate never produces GO when confidence is below 1st gear boundary (0.50)."""
     gatekeeper = GateKeeper()
     proposal = ActionProposal(
         source="s",
@@ -120,7 +121,14 @@ def test_gate_never_go_below_confidence_threshold(confidence: float) -> None:
         confidence=confidence,
     )
     constraint = ConstraintResult(action_id=proposal.action_id, verdict=Verdict.PASS)
-    decision, _ = gatekeeper.decide(proposal, constraint, has_precedent=True, rule_confidence=confidence)
+    gear = select_gear(confidence)
+    decision, _ = gatekeeper.decide(
+        proposal,
+        constraint,
+        has_precedent=True,
+        rule_confidence=confidence,
+        gear=gear,
+    )
     assert decision != GateDecision.GO
 
 

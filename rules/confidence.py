@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
+from math import sqrt
 from pathlib import Path
 
 _UPSERT = "INSERT OR IGNORE INTO rule_confidence (rule_name, alpha, beta, updated_at) VALUES (?, 1.0, 1.0, ?)"
@@ -113,6 +114,37 @@ class RuleConfidence:
             days = (now - last_fired).total_seconds() / 86400.0
             if days > 1.0:
                 self.decay(rule_name, days)
+
+    def get_distribution(self, rule_name: str) -> tuple[float, float]:
+        """Return (alpha, beta) for *rule_name*. Default (1.0, 1.0)."""
+        row = self._conn.execute(
+            "SELECT alpha, beta FROM rule_confidence WHERE rule_name = ?",
+            (rule_name,),
+        ).fetchone()
+        if row is None:
+            return (1.0, 1.0)
+        return (row[0], row[1])
+
+    def credible_interval(self, rule_name: str, width: float = 0.9) -> tuple[float, float]:
+        """Normal approximation credible interval for Beta(a, b).
+
+        Uses the Wilson score style formula:
+            mean = a / (a + b)
+            std  = sqrt(a * b / ((a + b)**2 * (a + b + 1)))
+            interval = mean +/- z * std
+
+        Returns (lower, upper) clamped to [0, 1].
+        """
+        z_map = {0.9: 1.645, 0.95: 1.96, 0.99: 2.576}
+        z = z_map.get(width, 1.645)
+
+        a, b = self.get_distribution(rule_name)
+        n = a + b
+        mean = a / n
+        std = sqrt(a * b / (n**2 * (n + 1)))
+        lower = max(0.0, mean - z * std)
+        upper = min(1.0, mean + z * std)
+        return (lower, upper)
 
     def close(self) -> None:
         self._conn.close()
