@@ -410,9 +410,10 @@ async def run_loop(*, anomaly: bool = False, demo: bool = False) -> None:
     tasks = [
         asyncio.create_task(plant.run(callback=signal_queue, interval=1.0)),
         asyncio.create_task(process_signals()),
-        asyncio.create_task(log_stats()),
-        asyncio.create_task(process_feedback()),
     ]
+    if not demo:
+        tasks.append(asyncio.create_task(log_stats()))
+        tasks.append(asyncio.create_task(process_feedback()))
     if anomaly:
         tasks.append(asyncio.create_task(inject_drift()))
 
@@ -420,6 +421,14 @@ async def run_loop(*, anomaly: bool = False, demo: bool = False) -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
+
+    if demo:
+        # Auto-stop after 30s -- long enough to show the full chain
+        async def auto_stop() -> None:
+            await asyncio.sleep(30.0)
+            stop.set()
+
+        tasks.append(asyncio.create_task(auto_stop()))
 
     await stop.wait()
     for t in tasks:
