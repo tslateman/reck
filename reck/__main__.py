@@ -55,12 +55,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LINE_ID = "site1/area1/line1"
 
 
-async def run_loop(*, anomaly: bool = False) -> None:
+async def run_loop(*, anomaly: bool = False, demo: bool = False) -> None:
     """Wire and run the full detection-to-action loop."""
 
     # --- Initialize components ---
-    plant = Plant()
-    detector = AnomalyDetector()
+    plant = Plant(tau=1.0 if demo else 10.0)
+    detector = AnomalyDetector(min_samples=5 if demo else 20)
     prioritizer = Prioritizer()
     baselines = BaselineStore(db_path=PROJECT_ROOT / "data" / "baselines.db")
     patterns = PatternMemory(db_path=PROJECT_ROOT / "data" / "patterns.db")
@@ -86,8 +86,13 @@ async def run_loop(*, anomaly: bool = False) -> None:
     escalation = EscalationHandler(data_dir=PROJECT_ROOT / "data")
     archive = DecisionArchive(data_dir=PROJECT_ROOT / "data")
     watch_client = WatchClient()
-    bridge = RedpandaBridge()
-    bridge.start()
+
+    # Skip Redpanda bridge in demo mode (librdkafka logs to stderr directly)
+    bridge: RedpandaBridge | None = None
+    if not demo:
+        bridge = RedpandaBridge()
+        bridge.start()
+
     timescale = TimescaleSink()
     timescale.connect()
 
@@ -344,13 +349,20 @@ async def run_loop(*, anomaly: bool = False) -> None:
             archive.record(record)
             timescale.sink_decision(asdict(record))
 
-    async def inject_drift(delay: float = 10.0) -> None:
+    drift_delay = 8.0 if demo else 10.0
+
+    async def inject_drift(delay: float = drift_delay) -> None:
         """After delay, drift temperature setpoint to trigger anomaly."""
         await asyncio.sleep(delay)
-        logger.warning("Injecting temperature drift: +0.5C/s")
+        sig = plant.signals["temperature"]
+        if demo:
+            # Step change: slam setpoint past rule threshold (215C)
+            sig.setpoint += 30.0
+            logger.warning("Injecting temperature step: +30C (setpoint -> %.1fC)", sig.setpoint)
+        else:
+            logger.warning("Injecting temperature drift: +0.5C/s")
         drift_rate = 0.5
         while True:
-            sig = plant.signals["temperature"]
             sig.setpoint += drift_rate
             await asyncio.sleep(1.0)
 
@@ -413,7 +425,8 @@ async def run_loop(*, anomaly: bool = False) -> None:
     for t in tasks:
         t.cancel()
     tracer.save_stats(PROJECT_ROOT / "data" / "latency.json")
-    bridge.stop()
+    if bridge is not None:
+        bridge.stop()
     timescale.close()
     watch_client.close()
     guard_client.close()
@@ -430,8 +443,30 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Reck autonomous manufacturing loop")
     parser.add_argument("--anomaly", action="store_true", help="Inject anomaly after 10s")
+    parser.add_argument(
+        "--demo", action="store_true", help="Self-contained demo (implies --anomaly, no Docker required)"
+    )
     args = parser.parse_args()
-    asyncio.run(run_loop(anomaly=args.anomaly))
+
+    if args.demo:
+        import warnings
+
+        args.anomaly = True
+        # Silence infrastructure and verbose library loggers -- demo runs without Docker
+        for name in (
+            "reck.infra.timescale",
+            "counsel.dispatch",
+            "watch.client",
+            "guard.checker",
+            "dowhy",
+            "reason.inference",
+        ):
+            logging.getLogger(name).setLevel(logging.CRITICAL)
+        # DoWhy and scipy use warnings.warn() which bypasses logging
+        warnings.filterwarnings("ignore", module="dowhy")
+        warnings.filterwarnings("ignore", module="scipy")
+
+    asyncio.run(run_loop(anomaly=args.anomaly, demo=args.demo))
 
 
 if __name__ == "__main__":

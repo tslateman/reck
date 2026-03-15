@@ -26,6 +26,10 @@ install:
 
 # --- Development ---
 
+# Run self-contained demo (no Docker required)
+demo:
+    uv run python -m reck --demo
+
 # Start the full system
 dev:
     uv run python -m reck
