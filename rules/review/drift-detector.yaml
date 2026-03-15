@@ -1,0 +1,14 @@
+agent: drift-detector
+checks:
+  - name: schema
+    type: schema
+    schema_path: rules/review/drift-detector-result.schema.json
+  - name: historical_range
+    type: historical
+    metric_path: summary.failure_count
+    sigma_threshold: 3.0
+  - name: reproducibility
+    type: reproducibility
+    failure_key_path: checks.failed
+    command_template: ["drift-detector", "check", "--only", "{check_name}"]
+    timeout_s: 30

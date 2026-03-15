@@ -42,6 +42,7 @@ packages = [
     "monitor",
     "reason",
     "reck",
+    "review",
     "rules",
     "sim",
     "triage",

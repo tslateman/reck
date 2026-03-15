@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Drift Detector Result",
+  "description": "Draft stub -- expect revision on first real integration.",
+  "type": "object",
+  "required": ["summary", "checks"],
+  "properties": {
+    "summary": {
+      "type": "object",
+      "required": ["failure_count", "pass_count", "total"],
+      "properties": {
+        "failure_count": { "type": "integer", "minimum": 0 },
+        "pass_count": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": ["passed", "failed"],
+      "properties": {
+        "passed": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "failed": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

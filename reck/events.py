@@ -93,6 +93,63 @@ class ConstraintResult:
     reason: str = ""
 
 
+class ReviewOutcome(Enum):
+    PASS = auto()
+    FAIL = auto()
+    ESCALATE = auto()
+
+
+class Recommendation(Enum):
+    SURFACE = auto()
+    RETRY = auto()
+    ESCALATE = auto()
+
+
+@dataclass
+class AgentResult:
+    """Input envelope wrapping background agent output."""
+
+    agent_name: str
+    structured_result: dict = field(default_factory=dict)
+    raw_output: str = ""
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    attempt: int = 1
+    prior_results: list[dict] = field(default_factory=list)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    _AGENT_NAME_RE = __import__("re").compile(r"^[a-zA-Z0-9_-]+$")
+
+    def __post_init__(self) -> None:
+        if not self._AGENT_NAME_RE.match(self.agent_name):
+            raise ValueError(f"agent_name must match ^[a-zA-Z0-9_-]+$, got {self.agent_name!r}")
+
+
+@dataclass
+class CheckResult:
+    """Output of one check function."""
+
+    check_name: str
+    verdict: Verdict
+    confidence: float = 1.0
+    reason: str = ""
+    detail: dict = field(default_factory=dict)
+
+
+@dataclass
+class ReviewVerdict:
+    """Final pipeline output, serialized to JSON on stdout."""
+
+    run_id: str
+    agent_name: str
+    attempt: int
+    verdict: ReviewOutcome
+    confidence: float
+    issues: list[str] = field(default_factory=list)
+    check_results: list[CheckResult] = field(default_factory=list)
+    recommendation: Recommendation = Recommendation.SURFACE
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 @dataclass
 class DecisionRecord:
     action_id: str

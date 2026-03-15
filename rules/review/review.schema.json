@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review Manifest",
+  "type": "object",
+  "required": ["agent", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["schema", "historical", "reproducibility"]
+          },
+          "schema_path": { "type": "string" },
+          "metric_path": { "type": "string" },
+          "sigma_threshold": { "type": "number", "exclusiveMinimum": 0 },
+          "failure_key_path": { "type": "string" },
+          "command_template": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "timeout_s": { "type": "integer", "minimum": 1 },
+          "allowed_executables": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
