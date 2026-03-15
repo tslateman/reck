@@ -39,7 +39,7 @@ reck/
 ├── memory/          # Pattern memory + baseline management (Python)
 ├── reason/          # Causal inference engine (Python)
 ├── counsel/         # LLM reasoning + simulation (Python)
-├── review/          # Background agent output judgment (Python)
+├── review/          # Background agent output judgment (Python) -- separate from main pipeline; evaluates agent output, not manufacturing signals
 ├── act/             # Action execution + OPC-UA client (Python -> Rust)
 ├── guard/           # Constraint checker + safety (Python -> Rust)
 ├── gate/            # Action arbiter, go/no-go gate (Python)

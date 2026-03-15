@@ -6,14 +6,17 @@ events and checks for precedent.
 
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 
 from reck.events import AnomalyEvent
+
+logger = logging.getLogger(__name__)
 
 DB_DIR = Path("data")
 DB_PATH = DB_DIR / "baselines.db"
@@ -130,10 +133,33 @@ class BaselineStore:
         df.index = pd.to_datetime(df.index)
         return df.sort_index().ffill().dropna()
 
-    def prune_history(self, days: int = 7) -> None:
-        """Remove history older than N days."""
-        # TODO: Implement time-based pruning
-        pass
+    def prune_history(self, days: int = 7) -> int:
+        """Remove signal history and anomalies older than *days*.
+
+        Returns the total number of rows deleted.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        cur = self._conn.cursor()
+
+        cur.execute("DELETE FROM signal_history WHERE timestamp < ?", (cutoff,))
+        history_deleted = cur.rowcount
+
+        cur.execute("DELETE FROM anomalies WHERE timestamp < ?", (cutoff,))
+        anomalies_deleted = cur.rowcount
+
+        self._conn.commit()
+
+        total = history_deleted + anomalies_deleted
+        if total:
+            self._conn.execute("VACUUM")
+        logger.info(
+            "Pruned %d rows (signal_history=%d, anomalies=%d) older than %d days",
+            total,
+            history_deleted,
+            anomalies_deleted,
+            days,
+        )
+        return total
 
     def get_baseline(self, source: str) -> tuple[float, float] | None:
         """Return (mean, stddev) for source, or None if no data."""

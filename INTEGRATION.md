@@ -125,6 +125,51 @@ Every escalation follows this structure:
 4. **Timeout**: If no response within the wait window, apply the interim action and log the timeout
 5. **Receive**: Council response arrives; Reck incorporates the decision and resumes autonomous operation
 
+## Shipyard Review Integration
+
+Shipyard spawns background agents. Reck evaluates their output. The handoff uses the `reck review` CLI as the contract boundary.
+
+### Invocation
+
+Shipyard's bus consumer calls reck review after each agent run:
+
+```bash
+reck review \
+  --agent <agent-name> \
+  --result <path-to-result.json> \
+  --attempt <1-indexed-retry-count>
+```
+
+### Contract
+
+| Aspect      | Value                                                                                         |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| Exit code 0 | PASS -- surface the result to the user                                                        |
+| Exit code 1 | FAIL or ESCALATE -- read stdout JSON for details                                              |
+| stdout      | JSON ReviewVerdict (run_id, agent_name, attempt, verdict, confidence, issues, recommendation) |
+| stderr      | Error messages (malformed input, missing manifest)                                            |
+
+### Verdict-to-Action Mapping
+
+Shipyard reads the `recommendation` field from the JSON verdict:
+
+| Recommendation | Shipyard Action                                                       |
+| -------------- | --------------------------------------------------------------------- |
+| SURFACE        | Deliver result to the requesting user/system                          |
+| RETRY          | Re-run the agent with `issues` as feedback context, increment attempt |
+| ESCALATE       | Stop retrying, notify operator with full escalation context           |
+
+### Retry Protocol
+
+1. Shipyard caps retries at 3 attempts (configurable per agent manifest)
+2. On attempt >= 3 with FAIL/ESCALATE, reck writes a ReviewEscalationRecord to data/review/escalations.jsonl
+3. The escalation record contains all verdicts and truncated/scrubbed raw outputs
+4. Shipyard reads the escalation file path from Cmux notification, not the record content
+
+### Ordering Guarantee
+
+Shipyard must serialize review calls per agent (no concurrent reviews for the same agent_name). The review module's JSONL history file is not concurrent-write-safe. Different agent_names may be reviewed in parallel.
+
 ## Geordi (Future)
 
 Geordi will provide the operator-facing dashboard. Until Geordi exists, Reck uses Grafana as an interim visualization layer:
