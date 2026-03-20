@@ -30,3 +30,20 @@ proto/reck_pb2*.pyi
 sim/outputs/
 sim/logs/
 data/
+
+# ── GSD baseline (auto-generated) ──
+.gsd
+.DS_Store
+Thumbs.db
+*~
+*.code-workspace
+.env.*
+!.env.example
+node_modules/
+.next/
+.venv/
+target/
+vendor/
+coverage/
+.cache/
+tmp/
