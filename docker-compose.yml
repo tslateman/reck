@@ -47,6 +47,73 @@ services:
       timeout: 5s
       retries: 5
 
+  timescaledb-init:
+    image: timescale/timescaledb:latest-pg16
+    container_name: reck-timescaledb-init
+    environment:
+      - PGPASSWORD=password
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until pg_isready -h timescaledb -U reck -d reck; do sleep 1; done
+        psql -h timescaledb -U reck -d reck -c "
+          CREATE TABLE IF NOT EXISTS signals (
+            timestamp TIMESTAMPTZ NOT NULL,
+            source TEXT NOT NULL,
+            value DOUBLE PRECISION NOT NULL,
+            unit TEXT
+          );
+          SELECT create_hypertable('signals', 'timestamp', if_not_exists => TRUE);
+          CREATE TABLE IF NOT EXISTS decisions (
+            timestamp TIMESTAMPTZ NOT NULL,
+            action_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            rule_name TEXT NOT NULL,
+            proposed_value DOUBLE PRECISION,
+            outcome TEXT NOT NULL,
+            payload JSONB,
+            gear INTEGER,
+            rule_confidence DOUBLE PRECISION
+          );
+          CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(timestamp);
+          CREATE TABLE IF NOT EXISTS operator_feedback (
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            action_id TEXT PRIMARY KEY,
+            rating INTEGER NOT NULL,
+            comment TEXT,
+            processed BOOLEAN DEFAULT FALSE
+          );
+          CREATE TABLE IF NOT EXISTS gear_transitions (
+            timestamp TIMESTAMPTZ NOT NULL,
+            rule_name TEXT NOT NULL,
+            gear_before INTEGER,
+            gear_after INTEGER NOT NULL,
+            confidence DOUBLE PRECISION NOT NULL
+          );
+        "
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  reck-core:
+    build:
+      context: ./reck-core
+      dockerfile: Dockerfile
+    container_name: reck-core
+    environment:
+      - MQTT_HOST=emqx
+      - MQTT_PORT=1883
+      - WATCH_PORT=50051
+      - CONSTRAINTS_PATH=/app/constraints.yaml
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./guard/constraints.yaml:/app/constraints.yaml:ro
+    depends_on:
+      emqx:
+        condition: service_healthy
+
   grafana:
     image: grafana/grafana:latest
     container_name: reck-grafana

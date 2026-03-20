@@ -129,7 +129,7 @@ async def test_monitor_result_captures_kpi() -> None:
         rollback_window_s=2,
     )
     assert isinstance(result, MonitorResult)
-    assert result.kpi_before == 196.0
-    assert result.kpi_after == 196.0
+    assert result.kpi_before["test/signal_sp"] == 196.0
+    assert result.kpi_after["test/signal_sp"] == 196.0
     assert result.duration_s == 2
     assert result.outcome == ActionLifecycle.CONFIRMED

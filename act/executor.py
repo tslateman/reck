@@ -8,6 +8,7 @@ never PLC logic.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,9 +115,48 @@ class _Snapshot:
 class ActionExecutor:
     """Executes action proposals by publishing setpoints via MQTT (coordinates with Rust)."""
 
-    def __init__(self, act_client: ActClient | None = None) -> None:
+    def __init__(
+        self,
+        act_client: ActClient | None = None,
+        snapshot_db: Path = Path("data/snapshots.db"),
+    ) -> None:
         self.snapshots: dict[str, _Snapshot] = {}
         self._client = act_client
+        self._db = self._init_db(snapshot_db)
+
+    @staticmethod
+    def _init_db(path: Path) -> sqlite3.Connection:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(path))
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS snapshots (
+                action_id TEXT PRIMARY KEY,
+                target TEXT NOT NULL,
+                previous_value REAL NOT NULL
+            )"""
+        )
+        conn.commit()
+        return conn
+
+    def _save_snapshot(self, action_id: str, snap: _Snapshot) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO snapshots (action_id, target, previous_value) VALUES (?, ?, ?)",
+            (action_id, snap.target, snap.previous_value),
+        )
+        self._db.commit()
+
+    def _load_snapshot(self, action_id: str) -> _Snapshot | None:
+        row = self._db.execute(
+            "SELECT target, previous_value FROM snapshots WHERE action_id = ?", (action_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return _Snapshot(target=row[0], previous_value=row[1])
+
+    def _delete_snapshot(self, action_id: str) -> None:
+        self._db.execute("DELETE FROM snapshots WHERE action_id = ?", (action_id,))
+        self._db.commit()
 
     def execute(
         self,
@@ -124,10 +164,9 @@ class ActionExecutor:
         mqtt_publish: Callable[[str, float], None],
     ) -> None:
         """Publish proposed setpoint and store previous value for rollback."""
-        self.snapshots[proposal.action_id] = _Snapshot(
-            target=proposal.target,
-            previous_value=proposal.previous_value,
-        )
+        snap = _Snapshot(target=proposal.target, previous_value=proposal.previous_value)
+        self.snapshots[proposal.action_id] = snap
+        self._save_snapshot(proposal.action_id, snap)
 
         success = False
         if self._client:
@@ -145,7 +184,12 @@ class ActionExecutor:
         mqtt_publish: Callable[[str, float], None],
     ) -> None:
         """Revert to stored previous value on the original target topic."""
-        snapshot = self.snapshots.pop(action_id)
+        snapshot = self.snapshots.pop(action_id, None) or self._load_snapshot(action_id)
+        if snapshot is None:
+            logger.warning("act.revert.no_snapshot", extra={"action_id": action_id})
+            return
+
+        self._delete_snapshot(action_id)
 
         success = False
         if self._client:

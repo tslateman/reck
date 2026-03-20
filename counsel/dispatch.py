@@ -48,7 +48,11 @@ class PraxisCounselDispatcher(CounselDispatcher):
 
         try:
             # 1. Register future for the return trip
-            self._pending[request.action_id] = asyncio.get_running_loop().create_future()
+            loop = asyncio.get_running_loop()
+            if loop is None or loop.is_closed():
+                logger.warning("counsel.dispatch.no_loop", extra={"error_code": "EVENT_LOOP_CLOSED"})
+                return False
+            self._pending[request.action_id] = loop.create_future()
 
             # 2. Convert to JSON for CLI transport
             payload = json_format.MessageToJson(request)
@@ -128,5 +132,10 @@ class PraxisCounselDispatcher(CounselDispatcher):
             logger.warning("counsel.mqtt.parse_failed", extra={"error": str(exc), "error_code": "MQTT_PARSE_FAILED"})
 
     def close(self):
+        # Cancel all pending futures to avoid abandoned coroutines
+        for action_id, future in list(self._pending.items()):
+            if not future.done():
+                future.cancel()
+        self._pending.clear()
         self._mqtt.loop_stop()
         self._mqtt.disconnect()

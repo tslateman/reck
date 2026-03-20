@@ -15,9 +15,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-LORE_BIN = Path.home() / "dev" / "lore" / "lore.sh"
-PRAXIS_BIN = Path("/Users/tslater/dev/praxis/bin/praxis")
-CMUX_BIN = Path("/Applications/cmux.app/Contents/Resources/bin/cmux")
+LORE_BIN = Path(os.environ.get("LORE_BIN", str(Path.home() / "dev" / "lore" / "lore.sh")))
+PRAXIS_BIN = Path(os.environ.get("PRAXIS_BIN", str(Path.home() / "dev" / "praxis" / "bin" / "praxis")))
+CMUX_BIN = Path(os.environ.get("CMUX_BIN", "/Applications/cmux.app/Contents/Resources/bin/cmux"))
 
 
 def _spawn(args: list[str]) -> None:

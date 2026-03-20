@@ -204,3 +204,40 @@ Initial implementation is Python for all components. The Rust hot path arrives a
 | Ollama           | Go (managed)         | Local LLM serving                          |
 | gRPC             | Rust/Python          | Cross-language communication boundary      |
 | Grafana          | TypeScript (managed) | Interim dashboard (TimescaleDB-native)     |
+
+## Production vs. Spike Status
+
+The spike (Plans 004-010) built the full three-tier reasoning framework. Not all components listed above are implemented. This table clarifies the boundary.
+
+### Implemented and Tested
+
+| Component                       | Status                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| Detection loop (`reck/loop.py`) | Full async detection-to-action chain with graceful shutdown                          |
+| Rule engine (`rules/`)          | YAML loading, fnmatch matching, Bayesian confidence, promotion pipeline              |
+| Causal inference (`reason/`)    | NetworkX graph, DoWhy estimation, PC-algorithm discovery                             |
+| Guard (`guard/`)                | Constraint validation via jsonschema (Python) and glob matching (Rust)               |
+| Gate (`gate/`)                  | Safety-first go/no-go arbiter with gear tiers                                        |
+| Memory (`memory/`)              | SQLite WAL baselines (Welford's algorithm), frozen pattern signatures                |
+| Monitor (`monitor/`)            | Multi-signal KPI watcher with configurable thresholds                                |
+| Breaker (`breaker/`)            | 3-strike cascade protection                                                          |
+| Ledger (`ledger/`)              | JSONL append-only audit trail                                                        |
+| Review (`review/`)              | Background agent judgment layer with modular check pipeline                          |
+| Protobuf schema (`proto/`)      | Production-grade messages covering all three tiers                                   |
+| Simulator (`sim/`)              | First-order lag dynamics with MQTT-native test harness                               |
+| EMQX + Redpanda + TimescaleDB   | Docker Compose services with health checks                                           |
+| Grafana                         | Provisioned dashboards and datasources                                               |
+| Rust hot path (`reck-core/`)    | Watch, guard, and act services via gRPC; anomaly detection with rolling window stats |
+
+### Designed but Not Implemented
+
+These appear in the architecture description above but use stubs or alternatives in the spike:
+
+| Component               | Current State                                                      |
+| ----------------------- | ------------------------------------------------------------------ |
+| PLC4X connectors        | Simulator replaces real PLC connections; no Java code exists       |
+| Apache Flink            | TimescaleDB continuous aggregates handle windowed analysis instead |
+| PostgreSQL + Apache AGE | Causal graph uses in-memory NetworkX with JSON persistence         |
+| Active Tier 3 (Ollama)  | Framework dispatches to Praxis/humans; no local LLM inference yet  |
+
+None of these are needed for the reasoning system to function. They represent production deployment integrations.

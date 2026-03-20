@@ -3,9 +3,7 @@ use serde::Deserialize;
 use std::path::Path;
 use tonic::{Request, Response, Status};
 
-use crate::reck::{
-    guard_service_server::GuardService, ActionProposal, ConstraintResult, Verdict,
-};
+use crate::reck::{guard_service_server::GuardService, ActionProposal, ConstraintResult, Verdict};
 
 #[derive(Debug, Deserialize)]
 struct ConstraintEntry {
@@ -142,5 +140,128 @@ impl GuardService for GuardServiceImpl {
             violated_constraint: "".to_string(),
             reason: "".to_string(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn test_constraints_yaml() -> NamedTempFile {
+        let mut f = NamedTempFile::new().unwrap();
+        write!(
+            f,
+            r#"constraints:
+  - parameter: "*/temperature_sp"
+    min: 160.0
+    max: 230.0
+    unit: celsius
+    rate_of_change: 10.0
+  - parameter: "*/pressure_sp"
+    min: 1.0
+    max: 10.0
+    unit: bar
+    rate_of_change: 2.0
+"#
+        )
+        .unwrap();
+        f
+    }
+
+    fn make_proposal(target: &str, proposed: f64, delta: f64) -> ActionProposal {
+        ActionProposal {
+            action_id: "test-001".to_string(),
+            source: "test/signal".to_string(),
+            target: target.to_string(),
+            delta,
+            previous_value: proposed - delta,
+            proposed_value: proposed,
+            rule_name: "test_rule".to_string(),
+            confidence: 0.9,
+            lifecycle: 0,
+            action_chain_id: "chain-001".to_string(),
+            rollback_window_s: 60,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pass_within_bounds() {
+        let f = test_constraints_yaml();
+        let svc = GuardServiceImpl::from_yaml(f.path()).unwrap();
+        let req = Request::new(make_proposal(
+            "site1/extruder/zone_1/temperature_sp",
+            200.0,
+            5.0,
+        ));
+        let res = svc.validate_proposal(req).await.unwrap().into_inner();
+        assert_eq!(res.verdict, Verdict::Pass as i32);
+    }
+
+    #[tokio::test]
+    async fn test_fail_below_min() {
+        let f = test_constraints_yaml();
+        let svc = GuardServiceImpl::from_yaml(f.path()).unwrap();
+        let req = Request::new(make_proposal(
+            "site1/extruder/zone_1/temperature_sp",
+            150.0,
+            -5.0,
+        ));
+        let res = svc.validate_proposal(req).await.unwrap().into_inner();
+        assert_eq!(res.verdict, Verdict::Fail as i32);
+        assert!(res.reason.contains("below minimum"));
+    }
+
+    #[tokio::test]
+    async fn test_fail_above_max() {
+        let f = test_constraints_yaml();
+        let svc = GuardServiceImpl::from_yaml(f.path()).unwrap();
+        let req = Request::new(make_proposal(
+            "site1/extruder/zone_1/temperature_sp",
+            240.0,
+            5.0,
+        ));
+        let res = svc.validate_proposal(req).await.unwrap().into_inner();
+        assert_eq!(res.verdict, Verdict::Fail as i32);
+        assert!(res.reason.contains("exceeds maximum"));
+    }
+
+    #[tokio::test]
+    async fn test_fail_rate_of_change() {
+        let f = test_constraints_yaml();
+        let svc = GuardServiceImpl::from_yaml(f.path()).unwrap();
+        let req = Request::new(make_proposal(
+            "site1/extruder/zone_1/temperature_sp",
+            200.0,
+            15.0,
+        ));
+        let res = svc.validate_proposal(req).await.unwrap().into_inner();
+        assert_eq!(res.verdict, Verdict::Fail as i32);
+        assert!(res.reason.contains("rate-of-change"));
+    }
+
+    #[tokio::test]
+    async fn test_pass_unmatched_target() {
+        let f = test_constraints_yaml();
+        let svc = GuardServiceImpl::from_yaml(f.path()).unwrap();
+        // A target that matches no constraint pattern passes by default
+        let req = Request::new(make_proposal("site1/conveyor/speed_sp", 999.0, 100.0));
+        let res = svc.validate_proposal(req).await.unwrap().into_inner();
+        assert_eq!(res.verdict, Verdict::Pass as i32);
+    }
+
+    #[tokio::test]
+    async fn test_pressure_constraint() {
+        let f = test_constraints_yaml();
+        let svc = GuardServiceImpl::from_yaml(f.path()).unwrap();
+        // Within bounds
+        let req = Request::new(make_proposal("site1/pump/pressure_sp", 5.0, 1.0));
+        let res = svc.validate_proposal(req).await.unwrap().into_inner();
+        assert_eq!(res.verdict, Verdict::Pass as i32);
+        // Exceeds max
+        let req = Request::new(make_proposal("site1/pump/pressure_sp", 12.0, 1.0));
+        let res = svc.validate_proposal(req).await.unwrap().into_inner();
+        assert_eq!(res.verdict, Verdict::Fail as i32);
     }
 }

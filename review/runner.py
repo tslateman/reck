@@ -51,6 +51,7 @@ class ReviewRunner:
         self._escalation = escalation_handler
         self._data_dir = data_dir
         self._review_dir = data_dir / "review"
+        self._recorded_keys: set[tuple[str, int]] | None = None
 
     def _history_path(self) -> Path:
         return self._review_dir / f"{self._agent_name}.jsonl"
@@ -66,17 +67,24 @@ class ReviewRunner:
                 verdicts.append(json.loads(line))
         return verdicts
 
+    def _ensure_recorded_keys(self) -> set[tuple[str, int]]:
+        """Lazy-load and cache the set of recorded (run_id, attempt) pairs."""
+        if self._recorded_keys is None:
+            self._recorded_keys = set()
+            path = self._history_path()
+            if path.is_file():
+                for line in path.read_text().splitlines():
+                    if line.strip():
+                        record = json.loads(line)
+                        rid = record.get("run_id")
+                        att = record.get("attempt")
+                        if rid is not None and att is not None:
+                            self._recorded_keys.add((rid, att))
+        return self._recorded_keys
+
     def _already_recorded(self, run_id: str, attempt: int) -> bool:
         """Check if a verdict for (run_id, attempt) already exists."""
-        path = self._history_path()
-        if not path.is_file():
-            return False
-        for line in path.read_text().splitlines():
-            if line.strip():
-                record = json.loads(line)
-                if record.get("run_id") == run_id and record.get("attempt") == attempt:
-                    return True
-        return False
+        return (run_id, attempt) in self._ensure_recorded_keys()
 
     def _persist(self, verdict: ReviewVerdict) -> None:
         """Append verdict to JSONL file. Idempotent on (run_id, attempt)."""
@@ -87,6 +95,7 @@ class ReviewRunner:
 
         with open(self._history_path(), "a") as f:
             f.write(json.dumps(asdict(verdict), default=default_serializer, ensure_ascii=True) + "\n")
+        self._ensure_recorded_keys().add((verdict.run_id, verdict.attempt))
 
     def review(self, result: AgentResult) -> ReviewVerdict:
         """Run the full review. Never raises into the caller."""

@@ -23,11 +23,20 @@ class InferenceEngine:
 
     def __init__(self, graph: CausalGraph) -> None:
         self._graph = graph
+        self._cache: dict[tuple[str, str, int], dict[str, Any]] = {}
+
+    def _cache_key(self, treatment: str, outcome: str, df: pd.DataFrame) -> tuple[str, str, int]:
+        """Build a cache key from treatment, outcome, and data hash."""
+        return (treatment, outcome, hash((len(df), tuple(df.columns), df.values.tobytes())))
 
     def estimate_intervention(self, treatment: str, outcome: str, df: pd.DataFrame) -> dict[str, Any]:
         """Estimate the effect of treatment on outcome. Returns dict with results."""
         if df.empty:
             return {"error": "empty data"}
+
+        key = self._cache_key(treatment, outcome, df)
+        if key in self._cache:
+            return self._cache[key]
 
         try:
             model = CausalModel(
@@ -43,7 +52,9 @@ class InferenceEngine:
             # 2. Estimate the causal effect
             estimate = model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression")
 
-            return {"treatment": treatment, "outcome": outcome, "value": estimate.value, "is_robust": True}
+            result = {"treatment": treatment, "outcome": outcome, "value": estimate.value, "is_robust": True}
+            self._cache[key] = result
+            return result
 
         except Exception as e:
             logger.error("Causal inference failed for %s -> %s: %s", treatment, outcome, e)

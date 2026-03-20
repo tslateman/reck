@@ -36,14 +36,19 @@ class RulePromoter:
     def get_candidates(self, min_occurrences: int = 10, min_success_rate: float = 0.8) -> list[RuleCandidate]:
         """Return patterns that meet the promotion criteria."""
         rows = self._conn.execute(
-            """SELECT id, source, deviation_type, magnitude_bucket, recipe,
-                      occurrence_count,
-                      (CAST(fix_success_count AS REAL) / (fix_success_count + fix_failure_count)) as rate,
-                      last_seen
-               FROM anomaly_patterns
-               WHERE occurrence_count >= ?
-               AND (fix_success_count + fix_failure_count) > 0
-               AND rate >= ?
+            """WITH rated AS (
+                 SELECT id, source, deviation_type, magnitude_bucket, recipe,
+                        occurrence_count,
+                        CAST(fix_success_count AS REAL) / (fix_success_count + fix_failure_count) AS rate,
+                        last_seen
+                 FROM anomaly_patterns
+                 WHERE occurrence_count >= ?
+                   AND (fix_success_count + fix_failure_count) > 0
+               )
+               SELECT id, source, deviation_type, magnitude_bucket, recipe,
+                      occurrence_count, rate, last_seen
+               FROM rated
+               WHERE rate >= ?
                ORDER BY occurrence_count DESC""",
             (min_occurrences, min_success_rate),
         ).fetchall()

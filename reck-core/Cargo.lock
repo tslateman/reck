@@ -835,6 +835,7 @@ dependencies = [
  "rumqttc",
  "serde",
  "serde_yaml",
+ "tempfile",
  "tokio",
  "tonic",
  "tonic-build",

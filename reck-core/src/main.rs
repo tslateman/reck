@@ -8,8 +8,8 @@ pub mod reck {
     tonic::include_proto!("reck");
 }
 
-mod guard;
 mod act;
+mod guard;
 
 use reck::{
     act_service_server::ActServiceServer,
@@ -132,7 +132,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let constraints_path = std::env::var("CONSTRAINTS_PATH")
         .unwrap_or_else(|_| "../guard/constraints.yaml".to_string());
-    let guard_service = guard::GuardServiceImpl::from_yaml(std::path::Path::new(&constraints_path))?;
+    let guard_service =
+        guard::GuardServiceImpl::from_yaml(std::path::Path::new(&constraints_path))?;
 
     let mqtt_host = std::env::var("MQTT_HOST").unwrap_or_else(|_| "localhost".to_string());
     let mqtt_port = std::env::var("MQTT_PORT")
@@ -169,4 +170,135 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_signal(source: &str, value: f64) -> SignalEvent {
+        SignalEvent {
+            source: source.to_string(),
+            value,
+            unit: "celsius".to_string(),
+            state_transition: "".to_string(),
+            timestamp: None,
+            context: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_no_anomaly_within_normal_range() {
+        let svc = WatchServiceImpl::default();
+        // Feed 30 samples at value 100.0 to build baseline
+        for _ in 0..30 {
+            let req = Request::new(make_signal("test/temp", 100.0));
+            let res = svc.forward_signal(req).await.unwrap().into_inner();
+            assert!(res.accepted);
+            assert!(res.anomaly.is_none());
+        }
+        // Value within normal range
+        let req = Request::new(make_signal("test/temp", 100.5));
+        let res = svc.forward_signal(req).await.unwrap().into_inner();
+        assert!(res.anomaly.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_anomaly_detected_on_spike() {
+        let svc = WatchServiceImpl {
+            windows: Arc::new(DashMap::new()),
+            window_size: 100,
+            min_samples: 20,
+        };
+        // Build baseline: 25 samples at 100.0 with slight variance
+        for i in 0..25 {
+            let v = 100.0 + (i as f64 % 3.0) * 0.1;
+            let req = Request::new(make_signal("test/temp", v));
+            svc.forward_signal(req).await.unwrap();
+        }
+        // Spike far outside normal range
+        let req = Request::new(make_signal("test/temp", 200.0));
+        let res = svc.forward_signal(req).await.unwrap().into_inner();
+        assert!(res.anomaly.is_some());
+        let anomaly = res.anomaly.unwrap();
+        assert_eq!(anomaly.source, "test/temp");
+        assert!(anomaly.deviation_sigma > 3.0);
+    }
+
+    #[tokio::test]
+    async fn test_insufficient_samples_no_anomaly() {
+        let svc = WatchServiceImpl {
+            windows: Arc::new(DashMap::new()),
+            window_size: 100,
+            min_samples: 20,
+        };
+        // Only 5 samples -- below min_samples threshold
+        for _ in 0..5 {
+            let req = Request::new(make_signal("test/temp", 100.0));
+            svc.forward_signal(req).await.unwrap();
+        }
+        // Even a spike should not trigger anomaly with insufficient data
+        let req = Request::new(make_signal("test/temp", 999.0));
+        let res = svc.forward_signal(req).await.unwrap().into_inner();
+        assert!(res.anomaly.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_window_size_respected() {
+        let svc = WatchServiceImpl {
+            windows: Arc::new(DashMap::new()),
+            window_size: 30,
+            min_samples: 20,
+        };
+        // Fill window with 35 samples (5 should be evicted)
+        for _ in 0..35 {
+            let req = Request::new(make_signal("test/temp", 100.0));
+            svc.forward_signal(req).await.unwrap();
+        }
+        let state = svc.windows.get("test/temp").unwrap();
+        assert!(state.values.len() <= 30);
+    }
+
+    #[tokio::test]
+    async fn test_separate_sources_independent() {
+        let svc = WatchServiceImpl::default();
+        // Feed source A with stable data (slight variance for nonzero stddev)
+        for i in 0..25 {
+            let v = 100.0 + (i as f64 % 3.0) * 0.1;
+            let req = Request::new(make_signal("source_a", v));
+            svc.forward_signal(req).await.unwrap();
+        }
+        // Feed source B with different stable data
+        for i in 0..25 {
+            let v = 50.0 + (i as f64 % 3.0) * 0.1;
+            let req = Request::new(make_signal("source_b", v));
+            svc.forward_signal(req).await.unwrap();
+        }
+        // Spike on source A should detect anomaly
+        let req = Request::new(make_signal("source_a", 200.0));
+        let res = svc.forward_signal(req).await.unwrap().into_inner();
+        assert!(res.anomaly.is_some());
+        // Value near the mean on source B should not
+        let req = Request::new(make_signal("source_b", 50.1));
+        let res = svc.forward_signal(req).await.unwrap().into_inner();
+        assert!(res.anomaly.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_configurable_window_and_min_samples() {
+        let svc = WatchServiceImpl {
+            windows: Arc::new(DashMap::new()),
+            window_size: 50,
+            min_samples: 10,
+        };
+        // With lower min_samples, anomaly detection kicks in sooner
+        for i in 0..12 {
+            let v = 100.0 + (i as f64 % 3.0) * 0.1;
+            let req = Request::new(make_signal("test/temp", v));
+            svc.forward_signal(req).await.unwrap();
+        }
+        let req = Request::new(make_signal("test/temp", 200.0));
+        let res = svc.forward_signal(req).await.unwrap().into_inner();
+        assert!(res.anomaly.is_some());
+    }
 }

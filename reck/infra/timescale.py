@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,7 +17,10 @@ import psycopg2
 
 logger = logging.getLogger(__name__)
 
-DB_DSN = "host=localhost dbname=reck user=reck password=password"
+DB_DSN = os.environ.get("RECK_TIMESCALE_DSN", "host=localhost dbname=reck user=reck password=password")
+
+_MAX_RETRIES = 3
+_RETRY_DELAY_S = 2.0
 
 
 class TimescaleSink:
@@ -26,25 +31,36 @@ class TimescaleSink:
         self._conn = None
         self._connected = False
 
-    def connect(self) -> bool:
-        """Establish connection and initialize schema."""
-        try:
-            self._conn = psycopg2.connect(self._dsn)
-            self._conn.autocommit = True
-            self._initialize_schema()
-            self._connected = True
-            logger.info("Connected to TimescaleDB")
-            return True
-        except Exception as exc:
-            logger.warning(
-                "timescale.connect.failed", extra={"error": str(exc), "error_code": "TIMESCALE_CONNECTION_FAILED"}
-            )
-            self._connected = False
-            return False
+    def connect(self, retries: int = _MAX_RETRIES) -> bool:
+        """Establish connection and initialize schema with retry."""
+        for attempt in range(1, retries + 1):
+            try:
+                self._conn = psycopg2.connect(self._dsn)
+                self._conn.autocommit = True
+                self._initialize_schema()
+                self._connected = True
+                logger.info("Connected to TimescaleDB")
+                return True
+            except Exception as exc:
+                logger.warning(
+                    "timescale.connect.failed",
+                    extra={
+                        "error": str(exc),
+                        "error_code": "TIMESCALE_CONNECTION_FAILED",
+                        "attempt": attempt,
+                        "max_retries": retries,
+                    },
+                )
+                self._conn = None
+                self._connected = False
+                if attempt < retries:
+                    time.sleep(_RETRY_DELAY_S * attempt)
+        return False
 
     def _initialize_schema(self) -> None:
         """Create hypertables and audit tables."""
-        assert self._conn is not None
+        if self._conn is None:
+            raise RuntimeError("Cannot initialize schema without a connection")
         with self._conn.cursor() as cur:
             # 1. Signals Hypertable
             cur.execute("""
@@ -106,7 +122,8 @@ class TimescaleSink:
             return
 
         try:
-            assert self._conn is not None
+            if self._conn is None:
+                return
             with self._conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO signals (timestamp, source, value, unit) VALUES (%s, %s, %s, %s)",
@@ -125,7 +142,8 @@ class TimescaleSink:
             proposal = record.get("proposal", {})
             gear = record.get("gear")
             rule_confidence = record.get("confidence_at_decision")
-            assert self._conn is not None
+            if self._conn is None:
+                return
             with self._conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO decisions
@@ -161,7 +179,8 @@ class TimescaleSink:
         if not self._connected:
             return
         try:
-            assert self._conn is not None
+            if self._conn is None:
+                return
             with self._conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO gear_transitions
@@ -178,7 +197,8 @@ class TimescaleSink:
             return []
 
         try:
-            assert self._conn is not None
+            if self._conn is None:
+                return []
             with self._conn.cursor() as cur:
                 cur.execute(
                     """SELECT f.action_id, f.rating, d.rule_name
@@ -198,7 +218,8 @@ class TimescaleSink:
             return
 
         try:
-            assert self._conn is not None
+            if self._conn is None:
+                return
             with self._conn.cursor() as cur:
                 cur.execute("UPDATE operator_feedback SET processed = TRUE WHERE action_id = %s", (action_id,))
         except Exception as exc:

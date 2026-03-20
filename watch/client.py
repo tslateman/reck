@@ -33,7 +33,7 @@ class WatchClient:
             self._stub = reck_pb2_grpc.WatchServiceStub(self._channel)
             self._available = True
         except ImportError:
-            logger.warning(
+            logger.debug(
                 "watch.client disabled",
                 extra={"reason": "grpcio not installed", "error_code": "GRPC_UNAVAILABLE"},
             )
