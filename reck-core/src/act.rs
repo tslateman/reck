@@ -6,9 +6,7 @@ use std::sync::{
 use std::time::Duration;
 use tonic::{Request, Response, Status};
 
-use crate::reck::{
-    act_service_server::ActService, ActionAck, ActionProposal, RevertRequest,
-};
+use crate::reck::{act_service_server::ActService, ActionAck, ActionProposal, RevertRequest};
 
 pub struct ActServiceImpl {
     mqtt_client: AsyncClient,
@@ -21,7 +19,13 @@ impl ActServiceImpl {
         mqttoptions.set_keep_alive(Duration::from_secs(5));
         let (client, eventloop) = AsyncClient::new(mqttoptions, 10);
         let connected = Arc::new(AtomicBool::new(false));
-        (Self { mqtt_client: client, connected }, eventloop)
+        (
+            Self {
+                mqtt_client: client,
+                connected,
+            },
+            eventloop,
+        )
     }
 }
 
@@ -43,7 +47,11 @@ impl ActService for ActServiceImpl {
         let topic = format!("{}/cmd", proposal.target);
         let payload = proposal.proposed_value.to_string();
 
-        match self.mqtt_client.publish(topic, QoS::AtLeastOnce, false, payload).await {
+        match self
+            .mqtt_client
+            .publish(topic, QoS::AtLeastOnce, false, payload)
+            .await
+        {
             Ok(_) => Ok(Response::new(ActionAck {
                 success: true,
                 error: "".to_string(),
@@ -71,7 +79,11 @@ impl ActService for ActServiceImpl {
         let topic = format!("{}/cmd", req.target);
         let payload = req.original_value.to_string();
 
-        match self.mqtt_client.publish(topic, QoS::AtLeastOnce, false, payload).await {
+        match self
+            .mqtt_client
+            .publish(topic, QoS::AtLeastOnce, false, payload)
+            .await
+        {
             Ok(_) => Ok(Response::new(ActionAck {
                 success: true,
                 error: "".to_string(),
