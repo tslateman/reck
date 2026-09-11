@@ -76,8 +76,10 @@ context reads.
 ### The Just Standard
 
 No code merges unless it passes the local harness. `just check` (Ruff + Pyright)
-and `just test` are the absolute minimum baselines. `just ci` runs both in sequence.
-The CI pipeline rejects any branch that bypasses these checks, regardless of author.
+and `just test` are the absolute minimum baselines. `just ci` runs both in sequence
+and is the required local gate before opening a PR. There is no automated CI
+runner yet; passing `just ci` is enforced by reviewer discipline, not by a
+pipeline, regardless of author.
 
 ### Zero-Friction Scaffolding
 
