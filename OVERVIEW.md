@@ -82,4 +82,4 @@ See [SAFETY.md](SAFETY.md) for the full constraint set and escalation triggers.
 | Tech stack and data flow        | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Safety boundaries in detail     | [SAFETY.md](SAFETY.md)             |
 | Ecosystem integration contracts | [INTEGRATION.md](INTEGRATION.md)   |
-| What gets built and when        | [plans/](plans/)                   |
+| What gets built and when        | `git log`                          |
