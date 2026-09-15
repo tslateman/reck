@@ -55,21 +55,22 @@ Reck runs standalone. Ecosystem integrations enrich the system but are not prere
 
 - **Lore** -- Record decisions as institutional memory
 - **Council** -- Escalate edge cases to human judgment
-- **Geordi** -- Expose system state through dashboards
+- **Shipyard** -- Spawn diagnostic agent fleets for anomalies
 - **Praxis** -- Synthesize learnings into predictive models
+- **Geordi** -- Expose system state through dashboards
 
 See [INTEGRATION.md](INTEGRATION.md) for the contracts with each project.
 
 ## Documentation
 
-| Document                           | Purpose                                             |
-| ---------------------------------- | --------------------------------------------------- |
-| [OVERVIEW.md](OVERVIEW.md)         | Three-tier reasoning model and autonomy gears       |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Signal ingestion, data representation, tech stack   |
-| [SAFETY.md](SAFETY.md)             | Safety boundaries: what Reck can and cannot do      |
-| [CONSTITUTION.md](CONSTITUTION.md) | Architectural primitives and operational directives |
-| [INTEGRATION.md](INTEGRATION.md)   | Contracts with Lore, Council, Shipyard, Geordi      |
-| [CONCEPT.md](CONCEPT.md)           | Original design space and problem statement         |
+| Document                           | Purpose                                                |
+| ---------------------------------- | ------------------------------------------------------ |
+| [OVERVIEW.md](OVERVIEW.md)         | Three-tier reasoning model and autonomy gears          |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Signal ingestion, data representation, tech stack      |
+| [SAFETY.md](SAFETY.md)             | Safety boundaries: what Reck can and cannot do         |
+| [CONSTITUTION.md](CONSTITUTION.md) | Architectural primitives and operational directives    |
+| [INTEGRATION.md](INTEGRATION.md)   | Contracts with Lore, Council, Shipyard, Praxis, Geordi |
+| [CONCEPT.md](CONCEPT.md)           | Original design space and problem statement            |
 
 ## Commands
 
