@@ -77,7 +77,7 @@ See [INTEGRATION.md](INTEGRATION.md) for the contracts with each project.
 | Command            | What it does                                 | Requires Docker |
 | ------------------ | -------------------------------------------- | --------------- |
 | `just demo`        | Self-contained reasoning loop demo           | No              |
-| `just test`        | Unit test suite (61 tests)                   | No              |
+| `just test`        | Unit test suite                              | No              |
 | `just check`       | Lint + format + type-check (ruff + pyright)  | No              |
 | `just sim`         | Plant simulator only (signal output)         | No              |
 | `just dev`         | Full system with infrastructure              | Yes             |
