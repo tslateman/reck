@@ -18,13 +18,13 @@ Beyond manufacturing, Reck proves the **Reactive Dispatch Pattern** for the enti
 
 To maintain a lean context window, do not read all documentation at once. Read the specific files below _only_ when your task requires that context.
 
-| Topic                    | Read This File    | When to Read                                                                                         |
-| :----------------------- | :---------------- | :--------------------------------------------------------------------------------------------------- |
-| **Absolute Constraints** | `CONSTITUTION.md` | When resolving design conflicts, reviewing PRs, or deciding if a pattern belongs. Read this first.   |
-| **Tech Stack & Flow**    | `ARCHITECTURE.md` | When adding new components, changing data flow, or working across the Rust/Python boundary.          |
-| **Rules & Constraints**  | `SAFETY.md`       | When implementing guards, executing fixes, or handling escalations. (Crucial: First-Time Fix rules). |
-| **Ecosystem Contracts**  | `INTEGRATION.md`  | When working on Lore (memory), Praxis (triggers), or Shipyard (fleets).                              |
-| **Project Roadmap**      | `plans/*.md`      | When deciding what to build next. Plan 007 (LLM Reasoning) is the current frontier.                  |
+| Topic                    | Read This File    | When to Read                                                                                                |
+| :----------------------- | :---------------- | :---------------------------------------------------------------------------------------------------------- |
+| **Absolute Constraints** | `CONSTITUTION.md` | When resolving design conflicts, reviewing PRs, or deciding if a pattern belongs. Read this first.          |
+| **Tech Stack & Flow**    | `ARCHITECTURE.md` | When adding new components, changing data flow, or working across the Rust/Python boundary.                 |
+| **Rules & Constraints**  | `SAFETY.md`       | When implementing guards, executing fixes, or handling escalations. (Crucial: First-Time Fix rules).        |
+| **Ecosystem Contracts**  | `INTEGRATION.md`  | When working on Lore (memory), Praxis (triggers), or Shipyard (fleets).                                     |
+| **Project Roadmap**      | `git log`         | When deciding what to build next. All 10 plans are implemented; commit history and Lore hold the reasoning. |
 
 | **Component Names** | `AGENTS.md` (Below) | When you need to know what a specific directory or module does. |
 
@@ -71,6 +71,7 @@ cargo test                   # Unit tests
 ```
 
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **reck** (1152 symbols, 2071 relationships, 40 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -95,22 +96,22 @@ This project is indexed by GitNexus as **reck** (1152 symbols, 2071 relationship
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/reck/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/reck/clusters` | All functional areas |
-| `gitnexus://repo/reck/processes` | All execution flows |
-| `gitnexus://repo/reck/process/{name}` | Step-by-step execution trace |
+| Resource                              | Use for                                  |
+| ------------------------------------- | ---------------------------------------- |
+| `gitnexus://repo/reck/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/reck/clusters`       | All functional areas                     |
+| `gitnexus://repo/reck/processes`      | All execution flows                      |
+| `gitnexus://repo/reck/process/{name}` | Step-by-step execution trace             |
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
