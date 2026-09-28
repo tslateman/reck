@@ -17,6 +17,7 @@ dependencies = [
     "pandas>=3.0.1",
     "confluent-kafka>=2.13.2",
     "psycopg2-binary>=2.9.11",
+    "anthropic>=0.40",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +42,7 @@ packages = [
     "memory",
     "monitor",
     "reason",
+    "recall",
     "reck",
     "review",
     "rules",
