@@ -4,7 +4,7 @@ from recall.records import ExplicitRecall, Mutation, Recall, RecallKind, RecallV
 JUDGED_AT = "2026-09-29T08:00:12Z"
 
 
-def make_turn(prompt="how would this work?", slice_="", recalls=(), explicit=(), mutations=()):
+def make_turn(prompt="how would this work?", authored="", tool_output="", recalls=(), explicit=(), mutations=()):
     return Turn(
         session="s1",
         prompt_uuid="p1",
@@ -14,7 +14,8 @@ def make_turn(prompt="how would this work?", slice_="", recalls=(), explicit=(),
         recalls=list(recalls),
         explicit_recalls=list(explicit),
         mutations=list(mutations),
-        slice=prompt + "\n" + slice_,
+        slice="\n".join([prompt, authored, tool_output]),
+        authored=authored,
     )
 
 
@@ -49,7 +50,7 @@ def test_short_tokens_and_version_numbers_are_not_distinctive():
 
 def test_shared_common_words_leave_recall_undecided():
     recall = make_recall(6523, "Always check the status of the build before you commit changes")
-    turn = make_turn(slice_="I will check the status of the build and then commit the changes.", recalls=[recall])
+    turn = make_turn(authored="I will check the status of the build and then commit the changes.", recalls=[recall])
 
     verdicts, undecided = classify(turn, JUDGED_AT)
 
@@ -61,7 +62,7 @@ def test_token_echoed_from_prompt_is_not_a_citation():
     recall = make_recall(6523, "Delete the statusLine key from settings.json rather than nulling it")
     turn = make_turn(
         prompt="why is settings.json not loading?",
-        slice_="Reading settings.json now. It parses fine.",
+        authored="Reading settings.json now. It parses fine.",
         recalls=[recall],
     )
 
@@ -74,7 +75,7 @@ def test_token_echoed_from_prompt_is_not_a_citation():
 def test_supersede_beats_cite():
     recall = make_recall(6523, "Use `shot-scraper` for screenshots")
     turn = make_turn(
-        slice_="Running shot-scraper, then updating memory id:6523.",
+        authored="Running shot-scraper, then updating memory id:6523.",
         recalls=[recall],
         mutations=[Mutation(tool="mcp__memory__update", id=6523)],
     )
@@ -99,7 +100,7 @@ def test_realistic_citation_by_distinctive_token():
     ]
     turn = make_turn(
         prompt="turn off the status bar at the bottom",
-        slice_=("Edit ~/.claude/settings.json: removing the statusLine key entirely, since null fails validation."),
+        authored=("Edit ~/.claude/settings.json: removing the statusLine key entirely, since null fails validation."),
         recalls=recalls,
     )
 
@@ -120,7 +121,7 @@ def test_realistic_citation_by_distinctive_token():
 
 def test_id_reference_is_a_citation():
     recall = make_recall(6523, "Prefer small commits")
-    turn = make_turn(slice_="Per [id:6523] I split this into two commits.", recalls=[recall])
+    turn = make_turn(authored="Per [id:6523] I split this into two commits.", recalls=[recall])
 
     verdicts, _ = classify(turn, JUDGED_AT)
 
@@ -129,7 +130,7 @@ def test_id_reference_is_a_citation():
 
 def test_id_reference_needs_exact_number():
     recall = make_recall(652, "Prefer small commits")
-    turn = make_turn(slice_="See id:6523 and #65234.", recalls=[recall])
+    turn = make_turn(authored="See id:6523 and #65234.", recalls=[recall])
 
     verdicts, undecided = classify(turn, JUDGED_AT)
 
@@ -139,7 +140,7 @@ def test_id_reference_needs_exact_number():
 
 def test_token_inside_longer_identifier_is_not_a_citation():
     recall = make_recall(6523, "Keep state in state.json")
-    turn = make_turn(slice_="Wrote indexer-state.json and state.jsonl.", recalls=[recall])
+    turn = make_turn(authored="Wrote indexer-state.json and state.jsonl.", recalls=[recall])
 
     verdicts, undecided = classify(turn, JUDGED_AT)
 
@@ -149,7 +150,7 @@ def test_token_inside_longer_identifier_is_not_a_citation():
 
 def test_repeated_automatic_recall_yields_one_verdict():
     recall = make_recall(6523, "Prefer small commits")
-    turn = make_turn(slice_="Following #6523.", recalls=[recall, recall])
+    turn = make_turn(authored="Following #6523.", recalls=[recall, recall])
 
     verdicts, undecided = classify(turn, JUDGED_AT)
 
@@ -168,7 +169,7 @@ def test_repeated_undecided_recall_is_returned_once():
 
 def test_explicit_recalls_get_mechanical_verdicts_only():
     turn = make_turn(
-        slice_="Recalled memories, then applied #6121.",
+        authored="Recalled memories, then applied #6121.",
         explicit=[ExplicitRecall(query="commit style", ids=[6121, 6931, 7000])],
         mutations=[Mutation(tool="mcp__memory__forget", id=7000)],
     )
@@ -185,7 +186,7 @@ def test_explicit_recalls_get_mechanical_verdicts_only():
 def test_explicit_recall_of_automatic_id_adds_no_second_verdict():
     recall = make_recall(6523, "Prefer small commits")
     turn = make_turn(
-        slice_="Following #6523.",
+        authored="Following #6523.",
         recalls=[recall],
         explicit=[ExplicitRecall(query="commits", ids=[6523])],
     )
@@ -217,3 +218,30 @@ def test_nested_and_rooted_paths_stay_distinctive():
         "/forge",
         "/dev/null",
     }
+
+
+def test_token_only_in_tool_output_is_not_a_citation():
+    recall = make_recall(6101, "Delete the statusLine key from settings.json rather than nulling it")
+    turn = make_turn(
+        authored="Read(file_path=/tmp/notes.txt)",
+        tool_output="notes: remember to back up ~/.claude/settings.json",
+        recalls=[recall],
+    )
+
+    verdicts, undecided = classify(turn, JUDGED_AT)
+
+    assert verdicts == []
+    assert undecided == [6101]
+
+
+def test_explicit_recall_echoed_only_in_tool_output_gets_no_verdict():
+    turn = make_turn(
+        authored='mcp__memory__recall(query="statusline")',
+        tool_output="[id:6101] [global] Delete the statusLine key from settings.json rather than nulling it",
+        explicit=[ExplicitRecall(query="statusline", ids=[6101])],
+    )
+
+    verdicts, undecided = classify(turn, JUDGED_AT)
+
+    assert verdicts == []
+    assert undecided == []

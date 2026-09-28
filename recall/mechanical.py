@@ -70,11 +70,11 @@ def _references_id(text: str, memory_id: int) -> str | None:
 
 
 def _citation(turn: Turn, memory_id: int, memory_text: str) -> str | None:
-    reference = _references_id(turn.slice, memory_id)
+    reference = _references_id(turn.authored, memory_id)
     if reference and not _references_id(turn.prompt, memory_id):
         return reference
     for token in sorted(distinctive_tokens(memory_text), key=lambda t: (-len(t), t)):
-        if _mentions(turn.slice, token) and not _mentions(turn.prompt, token):
+        if _mentions(turn.authored, token) and not _mentions(turn.prompt, token):
             return token
     return None
 
