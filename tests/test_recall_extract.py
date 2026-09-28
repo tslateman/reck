@@ -110,6 +110,22 @@ def test_slice_holds_prompt_text_tools_and_results(turns):
     assert "RESULT: Updated memory 101" in slice_lines
 
 
+def test_authored_holds_only_what_claude_wrote(turns):
+    authored = turns[0].authored.splitlines()
+    assert authored[0] == "ASSISTANT: Checking what is already known."
+    assert 'TOOL mcp__memory__recall: {"query": "widget cache", "limit": 5}' in authored
+    assert "ASSISTANT: Use a TTL on each entry." in authored
+
+
+def test_authored_excludes_tool_results_and_prompt(turns):
+    assert "Widget cache uses LRU" in turns[0].slice
+    assert "Widget cache uses LRU" not in turns[0].authored
+    assert "[id:201]" not in turns[0].authored
+    assert "RESULT:" not in turns[0].authored
+    assert "USER:" not in turns[0].authored
+    assert turns[3].authored == 'TOOL Bash: {"command": "ls"}'
+
+
 def test_slice_is_cut_to_cap(tmp_path):
     record = json.loads(TRANSCRIPT.read_text().splitlines()[1])
     record["message"]["content"] = "x" * (SLICE_CAP + 500)

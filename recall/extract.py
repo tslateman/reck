@@ -46,6 +46,7 @@ def extract_session(path: Path) -> list[Turn]:
     results = _tool_results(records)
     turns: list[Turn] = []
     parts: list[list[str]] = []
+    authored: list[list[str]] = []
     for record in records:
         prompt = _prompt_text(record)
         if prompt is not None:
@@ -59,14 +60,18 @@ def extract_session(path: Path) -> list[Turn]:
                 )
             )
             parts.append([f"USER: {prompt}"])
+            authored.append([])
         elif _is_recall_hook(record):
             turns[-1].recalls.extend(_parse_recalls(record["attachment"]["content"]))
         elif record["type"] == "assistant" and turns:
-            _add_assistant(turns[-1], parts[-1], record["message"]["content"], results)
+            lines = _add_assistant(turns[-1], record["message"]["content"], results)
+            parts[-1].extend(lines)
+            authored[-1].extend(lines)
         elif record["type"] == "user" and turns:
             parts[-1].extend(_tool_result_parts(record["message"]["content"]))
-    for turn, turn_parts in zip(turns, parts, strict=True):
+    for turn, turn_parts, turn_authored in zip(turns, parts, authored, strict=True):
         turn.slice = "\n".join(turn_parts)[:SLICE_CAP]
+        turn.authored = "\n".join(turn_authored)
     return turns
 
 
@@ -142,7 +147,8 @@ def _parse_recalls(content: list[str]) -> list[Recall]:
     return recalls
 
 
-def _add_assistant(turn: Turn, parts: list[str], content: list[dict], results: dict[str, dict]) -> None:
+def _add_assistant(turn: Turn, content: list[dict], results: dict[str, dict]) -> list[str]:
+    parts = []
     for block in content:
         if block["type"] == "text":
             parts.append(f"ASSISTANT: {block['text']}")
@@ -158,6 +164,7 @@ def _add_assistant(turn: Turn, parts: list[str], content: list[dict], results: d
                 turn.mutations.extend(
                     Mutation(tool=block["name"], id=i) for i in _mutated_ids(block["name"], block["input"])
                 )
+    return parts
 
 
 def _mutated_ids(tool: str, tool_input: dict) -> list[int]:
