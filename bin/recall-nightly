@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+if ! api_key="$(security find-generic-password -s anthropic-api-key -w)"; then
+    echo "recall-nightly: no Keychain item 'anthropic-api-key'. Add it with: security add-generic-password -s anthropic-api-key -a \"\$USER\" -w" >&2
+    exit 1
+fi
+export ANTHROPIC_API_KEY="$api_key"
+
+cd "$(dirname "$0")/.."
+echo "recall-nightly: start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+exec uv run python -m recall nightly "$@"

@@ -1,0 +1,158 @@
+"""Run the recall stages against a state directory.
+
+Call `extract_stage`, `judge_stage`, and `report_stage` in that order, or
+`nightly` for all three. Each takes explicit paths so tests can point it at
+temporary directories.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Callable
+from contextlib import closing
+from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
+
+from recall.extract import extract_session
+from recall.judge import JudgeClient, JudgeResponseError, judge_turn
+from recall.mechanical import classify
+from recall.records import Turn, VerdictRecord, read_turns, read_verdicts, write_jsonl
+from recall.report import render_report
+
+STATE_DIR = Path.home() / ".claude" / "recall-judgment"
+PROJECTS_DIR = Path.home() / ".claude" / "projects"
+MEMORY_DB = Path.home() / ".claude" / "memory.sqlite"
+CALIBRATION_SAMPLE_SIZE = 40
+
+
+@dataclass
+class ExtractSummary:
+    sessions: int
+    turns: int
+    turns_with_recalls: int
+
+
+@dataclass
+class JudgeSummary:
+    turns: int
+    mechanical_verdicts: int
+    already_judged: int
+    private_dropped: int
+    model_turns: int
+    model_pairs: int
+    model_slice_chars: int
+    model_verdicts: int
+    deferred_turns: int
+
+
+def extract_stage(projects_dir: Path, state_dir: Path) -> ExtractSummary:
+    """Write `turns/<session>.jsonl` for every transcript, replacing any earlier file for that session."""
+    summary = ExtractSummary(sessions=0, turns=0, turns_with_recalls=0)
+    for path in sorted(projects_dir.glob("*/*.jsonl")):
+        turns = extract_session(path)
+        out = state_dir / "turns" / f"{path.stem}.jsonl"
+        out.unlink(missing_ok=True)
+        write_jsonl(out, turns)
+        summary.sessions += 1
+        summary.turns += len(turns)
+        summary.turns_with_recalls += sum(1 for t in turns if t.recalls)
+    return summary
+
+
+def judge_stage(
+    state_dir: Path,
+    memory_db: Path,
+    client_factory: Callable[[], JudgeClient],
+    model: str,
+    today: date,
+    now: datetime,
+    since: datetime | None = None,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> JudgeSummary:
+    """Append new verdicts to `verdicts/<today>.jsonl` and return what was judged.
+
+    Pairs that already have a verdict in any verdict file are skipped. Private
+    memories get mechanical verdicts only. `limit` caps model calls; turns past
+    it are counted as deferred and judged by a later run. `dry_run` writes the
+    mechanical verdicts and counts what the model would see without calling it.
+    `client_factory` is called once, on the first model call.
+    """
+    judged_at = now.isoformat().replace("+00:00", "Z")
+    existing = {v.key for path in sorted((state_dir / "verdicts").glob("*.jsonl")) for v in read_verdicts(path)}
+    private = private_memory_ids(memory_db)
+    out = state_dir / "verdicts" / f"{today.isoformat()}.jsonl"
+    summary = JudgeSummary(0, 0, 0, 0, 0, 0, 0, 0, 0)
+    client: JudgeClient | None = None
+    for turn in load_turns(state_dir, since):
+        summary.turns += 1
+        mechanical, undecided = classify(turn, judged_at)
+        new = [v for v in mechanical if v.key not in existing]
+        summary.already_judged += len(mechanical) - len(new)
+        summary.mechanical_verdicts += len(new)
+        write_jsonl(out, new)
+        pending = [i for i in undecided if (turn.session, turn.prompt_uuid, i) not in existing]
+        summary.already_judged += len(undecided) - len(pending)
+        model_ids = [i for i in pending if i not in private]
+        summary.private_dropped += len(pending) - len(model_ids)
+        if not model_ids:
+            continue
+        if not dry_run and limit is not None and summary.model_turns >= limit:
+            summary.deferred_turns += 1
+            continue
+        summary.model_turns += 1
+        summary.model_pairs += len(model_ids)
+        summary.model_slice_chars += len(turn.slice)
+        if dry_run:
+            continue
+        if client is None:
+            client = client_factory()
+        verdicts = judge_with_retry(turn, model_ids, client, model, judged_at)
+        write_jsonl(out, verdicts)
+        summary.model_verdicts += len(verdicts)
+    return summary
+
+
+def judge_with_retry(
+    turn: Turn, memory_ids: list[int], client: JudgeClient, model: str, judged_at: str
+) -> list[VerdictRecord]:
+    """Call `judge_turn`, retrying once on `JudgeResponseError`; a second failure raises."""
+    try:
+        return judge_turn(turn, memory_ids, client, model, judged_at)
+    except JudgeResponseError:
+        return judge_turn(turn, memory_ids, client, model, judged_at)
+
+
+def report_stage(state_dir: Path, today: date, seed: int) -> Path:
+    """Render every verdict to `reports/<today>.md` and return its path."""
+    verdicts = [v for path in sorted((state_dir / "verdicts").glob("*.jsonl")) for v in read_verdicts(path)]
+    report = render_report(verdicts, memory_texts(load_turns(state_dir, None)), CALIBRATION_SAMPLE_SIZE, seed)
+    out = state_dir / "reports" / f"{today.isoformat()}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report)
+    return out
+
+
+def load_turns(state_dir: Path, since: datetime | None) -> list[Turn]:
+    """Return the extracted turns, keeping only those at or after `since` when given."""
+    turns = [t for path in sorted((state_dir / "turns").glob("*.jsonl")) for t in read_turns(path)]
+    if since is None:
+        return turns
+    return [t for t in turns if datetime.fromisoformat(t.ts) >= since]
+
+
+def memory_texts(turns: list[Turn]) -> dict[int, str]:
+    """Return the longest injected text seen for each automatically recalled memory."""
+    texts: dict[int, str] = {}
+    for turn in turns:
+        for recall in turn.recalls:
+            if len(recall.text) > len(texts.get(recall.id, "")):
+                texts[recall.id] = recall.text
+    return texts
+
+
+def private_memory_ids(memory_db: Path) -> set[int]:
+    """Return the ids of memories marked private, reading `memory_db` without writing to it."""
+    with closing(sqlite3.connect(f"file:{memory_db}?mode=ro", uri=True)) as conn:
+        return {row[0] for row in conn.execute("SELECT id FROM Memory WHERE isPrivate = 1")}

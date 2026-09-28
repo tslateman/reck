@@ -1,0 +1,74 @@
+"""CLI entry point: python -m recall {extract,judge,report,nightly}."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import asdict
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+
+import anthropic
+
+from recall.judge import DEFAULT_MODEL
+from recall.run import (
+    MEMORY_DB,
+    PROJECTS_DIR,
+    STATE_DIR,
+    extract_stage,
+    judge_stage,
+    report_stage,
+)
+
+NIGHTLY_WINDOW = timedelta(days=2)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m recall", description=__doc__)
+    parser.add_argument("--state-dir", type=Path, default=STATE_DIR)
+    parser.add_argument("--projects-dir", type=Path, default=PROJECTS_DIR)
+    parser.add_argument("--memory-db", type=Path, default=MEMORY_DB)
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("extract", help="Parse transcripts into turns/<session>.jsonl.")
+    judge = commands.add_parser("judge", help="Judge every unjudged (turn, memory) pair.")
+    judge.add_argument("--model", default=DEFAULT_MODEL)
+    judge.add_argument("--limit", type=int, help="Maximum model calls this run.")
+    judge.add_argument("--dry-run", action="store_true", help="Write mechanical verdicts only and count model work.")
+    report = commands.add_parser("report", help="Render all verdicts to reports/<date>.md.")
+    report.add_argument("--seed", type=int, default=0)
+    nightly = commands.add_parser("nightly", help="Extract, judge the last two days, and report.")
+    nightly.add_argument("--model", default=DEFAULT_MODEL)
+    nightly.add_argument("--limit", type=int)
+    nightly.add_argument("--seed", type=int, default=0)
+    return parser
+
+
+def print_summary(stage: str, summary: object) -> None:
+    for field, value in asdict(summary).items():
+        print(f"{stage}: {field.replace('_', ' ')}: {value}")
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    now = datetime.now(UTC)
+    today = date.today()
+    if args.command in ("extract", "nightly"):
+        print_summary("extract", extract_stage(args.projects_dir, args.state_dir))
+    if args.command in ("judge", "nightly"):
+        summary = judge_stage(
+            args.state_dir,
+            args.memory_db,
+            anthropic.Anthropic,
+            args.model,
+            today,
+            now,
+            since=now - NIGHTLY_WINDOW if args.command == "nightly" else None,
+            limit=args.limit,
+            dry_run=args.command == "judge" and args.dry_run,
+        )
+        print_summary("judge", summary)
+    if args.command in ("report", "nightly"):
+        print(f"report: {report_stage(args.state_dir, today, args.seed)}")
+
+
+if __name__ == "__main__":
+    main()
