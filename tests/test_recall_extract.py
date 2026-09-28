@@ -117,6 +117,15 @@ def test_authored_holds_only_what_claude_wrote(turns):
     assert "ASSISTANT: Use a TTL on each entry." in authored
 
 
+def test_tool_result_is_in_slice_only_while_claude_text_and_tool_input_are_in_both(turns):
+    turn = turns[0]
+    assert "RESULT: Updated memory 101" in turn.slice
+    assert "Updated memory 101" not in turn.authored
+    for written in ("ASSISTANT: Use a TTL on each entry.", 'TOOL mcp__memory__update: {"id": 101'):
+        assert written in turn.slice
+        assert written in turn.authored
+
+
 def test_authored_excludes_tool_results_and_prompt(turns):
     assert "Widget cache uses LRU" in turns[0].slice
     assert "Widget cache uses LRU" not in turns[0].authored
