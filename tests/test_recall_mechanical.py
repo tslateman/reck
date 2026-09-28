@@ -1,4 +1,4 @@
-from recall.mechanical import classify, distinctive_tokens
+from recall.mechanical import classify, common_tokens, distinctive_tokens
 from recall.records import ExplicitRecall, Mutation, Recall, RecallKind, RecallVerdict, Turn
 
 JUDGED_AT = "2026-09-29T08:00:12Z"
@@ -52,7 +52,7 @@ def test_shared_common_words_leave_recall_undecided():
     recall = make_recall(6523, "Always check the status of the build before you commit changes")
     turn = make_turn(authored="I will check the status of the build and then commit the changes.", recalls=[recall])
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert verdicts == []
     assert undecided == [6523]
@@ -66,7 +66,7 @@ def test_token_echoed_from_prompt_is_not_a_citation():
         recalls=[recall],
     )
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert verdicts == []
     assert undecided == [6523]
@@ -80,7 +80,7 @@ def test_supersede_beats_cite():
         mutations=[Mutation(tool="mcp__memory__update", id=6523)],
     )
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert [(v.memory_id, v.verdict, v.evidence) for v in verdicts] == [
         (6523, RecallVerdict.SUPERSEDED, "mcp__memory__update")
@@ -104,7 +104,7 @@ def test_realistic_citation_by_distinctive_token():
         recalls=recalls,
     )
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert len(verdicts) == 1
     verdict = verdicts[0]
@@ -123,7 +123,7 @@ def test_id_reference_is_a_citation():
     recall = make_recall(6523, "Prefer small commits")
     turn = make_turn(authored="Per [id:6523] I split this into two commits.", recalls=[recall])
 
-    verdicts, _ = classify(turn, JUDGED_AT)
+    verdicts, _ = classify(turn, JUDGED_AT, frozenset())
 
     assert [(v.verdict, v.evidence) for v in verdicts] == [(RecallVerdict.CITED, "id:6523")]
 
@@ -132,7 +132,7 @@ def test_id_reference_needs_exact_number():
     recall = make_recall(652, "Prefer small commits")
     turn = make_turn(authored="See id:6523 and #65234.", recalls=[recall])
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert verdicts == []
     assert undecided == [652]
@@ -142,7 +142,7 @@ def test_token_inside_longer_identifier_is_not_a_citation():
     recall = make_recall(6523, "Keep state in state.json")
     turn = make_turn(authored="Wrote indexer-state.json and state.jsonl.", recalls=[recall])
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert verdicts == []
     assert undecided == [6523]
@@ -152,7 +152,7 @@ def test_repeated_automatic_recall_yields_one_verdict():
     recall = make_recall(6523, "Prefer small commits")
     turn = make_turn(authored="Following #6523.", recalls=[recall, recall])
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert len(verdicts) == 1
     assert undecided == []
@@ -162,7 +162,7 @@ def test_repeated_undecided_recall_is_returned_once():
     recall = make_recall(6523, "Prefer small commits")
     turn = make_turn(recalls=[recall, recall])
 
-    _, undecided = classify(turn, JUDGED_AT)
+    _, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert undecided == [6523]
 
@@ -174,7 +174,7 @@ def test_explicit_recalls_get_mechanical_verdicts_only():
         mutations=[Mutation(tool="mcp__memory__forget", id=7000)],
     )
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert [(v.memory_id, v.verdict, v.recall_kind, v.score) for v in verdicts] == [
         (6121, RecallVerdict.CITED, RecallKind.EXPLICIT, None),
@@ -191,7 +191,7 @@ def test_explicit_recall_of_automatic_id_adds_no_second_verdict():
         explicit=[ExplicitRecall(query="commits", ids=[6523])],
     )
 
-    verdicts, _ = classify(turn, JUDGED_AT)
+    verdicts, _ = classify(turn, JUDGED_AT, frozenset())
 
     assert [(v.memory_id, v.recall_kind) for v in verdicts] == [(6523, RecallKind.AUTOMATIC)]
 
@@ -228,7 +228,7 @@ def test_token_only_in_tool_output_is_not_a_citation():
         recalls=[recall],
     )
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert verdicts == []
     assert undecided == [6101]
@@ -241,7 +241,45 @@ def test_explicit_recall_echoed_only_in_tool_output_gets_no_verdict():
         explicit=[ExplicitRecall(query="statusline", ids=[6101])],
     )
 
-    verdicts, undecided = classify(turn, JUDGED_AT)
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
 
     assert verdicts == []
     assert undecided == []
+
+
+def test_common_token_is_cited_without_the_filter_and_undecided_with_it():
+    turn = make_turn(
+        authored='TOOL Bash: {"command": "ls 2>/dev/null"}',
+        recalls=[make_recall(7, "Silence noisy probes with 2>/dev/null when scanning.")],
+    )
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset())
+    assert [(v.memory_id, v.verdict, v.evidence) for v in verdicts] == [(7, RecallVerdict.CITED, "/dev/null")]
+    assert undecided == []
+    verdicts, undecided = classify(turn, JUDGED_AT, frozenset({"/dev/null"}))
+    assert verdicts == []
+    assert undecided == [7]
+
+
+def test_common_tokens_count_each_turn_once():
+    repeated = make_turn(authored="cat a 2>/dev/null; cat b 2>/dev/null; cat c 2>/dev/null")
+    plain = [make_turn(authored="wrote the parser") for _ in range(3)]
+    assert common_tokens([repeated, *plain], max_share=0.25) == frozenset()
+    assert common_tokens([repeated, *plain], max_share=0.2) == frozenset({"/dev/null"})
+
+
+def test_common_tokens_ignore_words_that_are_not_distinctive():
+    turns = [make_turn(authored="checking the status of the build") for _ in range(4)]
+    assert common_tokens(turns, max_share=0.0) == frozenset()
+
+
+def test_common_tokens_count_subpaths_and_plain_hyphenated_words_the_citation_rule_matches():
+    turns = [
+        make_turn(authored="edited ~/.claude/settings.json and pushed to github.com/tslateman/reck with dev-dirty")
+        for _ in range(3)
+    ]
+    common = common_tokens([*turns, make_turn(authored="wrote the parser")], max_share=0.5)
+    assert {"settings.json", "github.com/tslateman", "dev-dirty"} <= common
+    memory = make_recall(8, "Keep `dev-dirty` and settings.json in sync; see github.com/tslateman.")
+    verdicts, undecided = classify(make_turn(authored=turns[0].authored, recalls=[memory]), JUDGED_AT, common)
+    assert verdicts == []
+    assert undecided == [8]

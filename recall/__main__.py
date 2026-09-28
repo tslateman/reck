@@ -11,6 +11,7 @@ import anthropic
 
 from recall.judge import DEFAULT_MODEL
 from recall.run import (
+    COMMON_TOKEN_SHARE,
     MEMORY_DB,
     PROJECTS_DIR,
     STATE_DIR,
@@ -33,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     judge.add_argument("--model", default=DEFAULT_MODEL)
     judge.add_argument("--limit", type=int, help="Maximum model calls this run.")
     judge.add_argument("--dry-run", action="store_true", help="Write mechanical verdicts only and count model work.")
+    judge.add_argument(
+        "--common-token-share",
+        type=float,
+        default=COMMON_TOKEN_SHARE,
+        help="Share of turns above which a token no longer counts as a citation.",
+    )
     report = commands.add_parser("report", help="Render all verdicts to reports/<date>.md.")
     report.add_argument("--seed", type=int, default=0)
     nightly = commands.add_parser("nightly", help="Extract, judge the last two days, and report.")
@@ -64,6 +71,7 @@ def main(argv: list[str] | None = None) -> None:
             since=now - NIGHTLY_WINDOW if args.command == "nightly" else None,
             limit=args.limit,
             dry_run=args.command == "judge" and args.dry_run,
+            common_token_share=args.common_token_share if args.command == "judge" else COMMON_TOKEN_SHARE,
         )
         print_summary("judge", summary)
     if args.command in ("report", "nightly"):

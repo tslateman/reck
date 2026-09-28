@@ -1,12 +1,14 @@
 """Mechanical recall verdicts: decide `superseded` and `cited` without a model.
 
-Call `classify(turn, judged_at)` for each turn. It returns the verdicts it could
-decide and the ids of automatic recalls the model judge still has to see.
+Call `common_tokens(turns, max_share)` once over every extracted turn, then
+`classify(turn, judged_at, common)` for each turn. It returns the verdicts it
+could decide and the ids of automatic recalls the model judge still has to see.
 """
 
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 from recall.records import RecallKind, RecallVerdict, Turn, VerdictRecord
 
@@ -60,6 +62,24 @@ def distinctive_tokens(text: str) -> set[str]:
     return tokens
 
 
+def common_tokens(turns: list[Turn], max_share: float) -> frozenset[str]:
+    """Return the distinctive tokens found in the `authored` text of more than `max_share` of `turns`."""
+    counts = Counter(token for turn in turns for token in _mentionable_tokens(turn.authored))
+    return frozenset(token for token, count in counts.items() if count > max_share * len(turns))
+
+
+def _mentionable_tokens(text: str) -> set[str]:
+    tokens = set()
+    for match in _WORD.finditer(text):
+        segments = match.group().rstrip(_TRAILING_PUNCTUATION).split("/")
+        for start in range(len(segments)):
+            for end in range(start + 1, len(segments) + 1):
+                token = "/".join(segments[start:end])
+                if _is_distinctive(token, backticked=True):
+                    tokens.add(token)
+    return tokens
+
+
 def _mentions(text: str, token: str) -> bool:
     return re.search(rf"(?<![\w-]){re.escape(token)}(?![\w-])", text) is not None
 
@@ -69,11 +89,11 @@ def _references_id(text: str, memory_id: int) -> str | None:
     return match.group() if match else None
 
 
-def _citation(turn: Turn, memory_id: int, memory_text: str) -> str | None:
+def _citation(turn: Turn, memory_id: int, memory_text: str, common: frozenset[str]) -> str | None:
     reference = _references_id(turn.authored, memory_id)
     if reference and not _references_id(turn.prompt, memory_id):
         return reference
-    for token in sorted(distinctive_tokens(memory_text), key=lambda t: (-len(t), t)):
+    for token in sorted(distinctive_tokens(memory_text) - common, key=lambda t: (-len(t), t)):
         if _mentions(turn.authored, token) and not _mentions(turn.prompt, token):
             return token
     return None
@@ -105,7 +125,13 @@ def _verdict(
 
 
 def _decide(
-    turn: Turn, memory_id: int, memory_text: str, kind: RecallKind, score: float | None, judged_at: str
+    turn: Turn,
+    memory_id: int,
+    memory_text: str,
+    kind: RecallKind,
+    score: float | None,
+    judged_at: str,
+    common: frozenset[str],
 ) -> VerdictRecord | None:
     mutation = next((m for m in turn.mutations if m.id == memory_id), None)
     if mutation:
@@ -119,7 +145,7 @@ def _decide(
             mutation.tool,
             judged_at,
         )
-    evidence = _citation(turn, memory_id, memory_text)
+    evidence = _citation(turn, memory_id, memory_text, common)
     if evidence:
         return _verdict(
             turn,
@@ -134,8 +160,10 @@ def _decide(
     return None
 
 
-def classify(turn: Turn, judged_at: str) -> tuple[list[VerdictRecord], list[int]]:
+def classify(turn: Turn, judged_at: str, common: frozenset[str]) -> tuple[list[VerdictRecord], list[int]]:
     """Return `(verdicts, undecided)` for one turn.
+
+    Tokens in `common`, from `common_tokens`, never count as a citation.
 
     `verdicts` holds one mechanical verdict per decided memory. `undecided`
     lists automatic-recall ids left for the model judge. Explicit recalls get
@@ -147,7 +175,7 @@ def classify(turn: Turn, judged_at: str) -> tuple[list[VerdictRecord], list[int]
     for recall in turn.recalls:
         if recall.id in decided or recall.id in undecided:
             continue
-        record = _decide(turn, recall.id, recall.text, RecallKind.AUTOMATIC, recall.score, judged_at)
+        record = _decide(turn, recall.id, recall.text, RecallKind.AUTOMATIC, recall.score, judged_at, common)
         if record:
             verdicts.append(record)
             decided.add(recall.id)
@@ -158,7 +186,7 @@ def classify(turn: Turn, judged_at: str) -> tuple[list[VerdictRecord], list[int]
         for memory_id in explicit.ids:
             if memory_id in automatic | decided:
                 continue
-            record = _decide(turn, memory_id, "", RecallKind.EXPLICIT, None, judged_at)
+            record = _decide(turn, memory_id, "", RecallKind.EXPLICIT, None, judged_at, common)
             if record:
                 verdicts.append(record)
                 decided.add(memory_id)

@@ -9,7 +9,7 @@ import pytest
 
 from recall.__main__ import main
 from recall.judge import TOOL_NAME, JudgeResponseError
-from recall.records import RecallVerdict, read_turns, read_verdicts
+from recall.records import Recall, RecallVerdict, Turn, read_turns, read_verdicts, write_jsonl
 from recall.run import extract_stage, judge_stage, memory_texts, private_memory_ids, report_stage
 
 PROJECTS = Path(__file__).parent / "fixtures" / "recall"
@@ -175,7 +175,7 @@ def test_report_renders_model_and_mechanical_verdicts(state, memory_db):
 def test_cli_dry_run_prints_counts(tmp_path, memory_db, capsys):
     args = ["--state-dir", str(tmp_path), "--projects-dir", str(PROJECTS), "--memory-db", str(memory_db)]
     main([*args, "extract"])
-    main([*args, "judge", "--dry-run"])
+    main([*args, "judge", "--dry-run", "--common-token-share", "0.5"])
     main([*args, "report"])
     out = capsys.readouterr().out
     assert "extract: turns with recalls: 3" in out
@@ -189,3 +189,22 @@ def test_cli_nightly_judges_only_the_recent_window(tmp_path, memory_db, capsys):
     out = capsys.readouterr().out
     assert "judge: turns: 0" in out
     assert "report: " in out
+
+
+def make_turn(uuid, ts, authored, recalls=()):
+    return Turn(
+        session="s1", prompt_uuid=uuid, ts=ts, project="p", prompt="go", recalls=list(recalls), authored=authored
+    )
+
+
+def test_common_tokens_are_counted_over_every_turn_not_only_the_window(tmp_path, memory_db):
+    memory = Recall(id=9, scope="global", scorer="fts5", score=-8.0, text="Redirect probes to /dev/null.")
+    old = [make_turn(f"old{i}", "2026-08-01T00:00:00Z", "wrote the parser") for i in range(8)]
+    recent = [
+        make_turn("new1", "2026-09-29T07:00:00Z", "ran ls 2>/dev/null", [memory]),
+        make_turn("new2", "2026-09-29T07:30:00Z", "wrote the lexer"),
+    ]
+    write_jsonl(tmp_path / "turns" / "s1.jsonl", [*old, *recent])
+    summary = judge(tmp_path, memory_db, since=datetime(2026, 9, 29, tzinfo=UTC), dry_run=True, common_token_share=0.3)
+    assert summary.turns == 2
+    assert [(v.memory_id, v.verdict) for v in all_verdicts(tmp_path)] == [(9, RecallVerdict.CITED)]

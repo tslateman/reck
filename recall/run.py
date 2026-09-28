@@ -16,7 +16,7 @@ from pathlib import Path
 
 from recall.extract import extract_session
 from recall.judge import JudgeClient, JudgeResponseError, judge_turn
-from recall.mechanical import classify
+from recall.mechanical import classify, common_tokens
 from recall.records import Turn, VerdictRecord, read_turns, read_verdicts, write_jsonl
 from recall.report import render_report
 
@@ -24,6 +24,7 @@ STATE_DIR = Path.home() / ".claude" / "recall-judgment"
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 MEMORY_DB = Path.home() / ".claude" / "memory.sqlite"
 CALIBRATION_SAMPLE_SIZE = 40
+COMMON_TOKEN_SHARE = 0.02
 
 
 @dataclass
@@ -70,6 +71,7 @@ def judge_stage(
     since: datetime | None = None,
     limit: int | None = None,
     dry_run: bool = False,
+    common_token_share: float = COMMON_TOKEN_SHARE,
 ) -> JudgeSummary:
     """Append new verdicts to `verdicts/<today>.jsonl` and return what was judged.
 
@@ -77,7 +79,9 @@ def judge_stage(
     memories get mechanical verdicts only. `limit` caps model calls; turns past
     it are counted as deferred and judged by a later run. `dry_run` writes the
     mechanical verdicts and counts what the model would see without calling it.
-    `client_factory` is called once, on the first model call.
+    `client_factory` is called once, on the first model call. A distinctive
+    token in the `authored` text of more than `common_token_share` of all
+    extracted turns never counts as a citation.
     """
     judged_at = now.isoformat().replace("+00:00", "Z")
     existing = {v.key for path in sorted((state_dir / "verdicts").glob("*.jsonl")) for v in read_verdicts(path)}
@@ -85,9 +89,11 @@ def judge_stage(
     out = state_dir / "verdicts" / f"{today.isoformat()}.jsonl"
     summary = JudgeSummary(0, 0, 0, 0, 0, 0, 0, 0, 0)
     client: JudgeClient | None = None
-    for turn in load_turns(state_dir, since):
+    all_turns = load_turns(state_dir, None)
+    common = common_tokens(all_turns, common_token_share)
+    for turn in all_turns if since is None else recent(all_turns, since):
         summary.turns += 1
-        mechanical, undecided = classify(turn, judged_at)
+        mechanical, undecided = classify(turn, judged_at, common)
         new = [v for v in mechanical if v.key not in existing]
         summary.already_judged += len(mechanical) - len(new)
         summary.mechanical_verdicts += len(new)
@@ -139,6 +145,11 @@ def load_turns(state_dir: Path, since: datetime | None) -> list[Turn]:
     turns = [t for path in sorted((state_dir / "turns").glob("*.jsonl")) for t in read_turns(path)]
     if since is None:
         return turns
+    return recent(turns, since)
+
+
+def recent(turns: list[Turn], since: datetime) -> list[Turn]:
+    """Return the turns whose prompt came at or after `since`."""
     return [t for t in turns if datetime.fromisoformat(t.ts) >= since]
 
 

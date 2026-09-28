@@ -20,7 +20,9 @@ transcripts ──extract──▶ turns ──judge──▶ verdicts ──rep
 
 `judge` takes `--dry-run` to write mechanical verdicts only and count the model
 work, `--limit N` to cap model calls per run, and `--model` to override
-`claude-haiku-4-5-20251001`. `report` takes `--seed` for the calibration
+`claude-haiku-4-5-20251001`, and `--common-token-share` (default `0.02`) to set
+the share of all extracted turns above which a token Claude writes counts as
+routine rather than as a citation. `report` takes `--seed` for the calibration
 sample. Every command takes `--state-dir`, `--projects-dir`, and `--memory-db`.
 
 `judge` skips any (session, prompt, memory) pair that already has a verdict,
@@ -47,16 +49,16 @@ key, so `judge` runs with `--dry-run`:
 ```console
 $ uv run python -m recall extract
 extract: sessions: 192
-extract: turns: 1798
-extract: turns with recalls: 1127
+extract: turns: 1802
+extract: turns with recalls: 1129
 $ uv run python -m recall judge --dry-run
-judge: turns: 1798
-judge: mechanical verdicts: 663
+judge: turns: 1802
+judge: mechanical verdicts: 215
 judge: already judged: 0
 judge: private dropped: 0
-judge: model turns: 1115
-judge: model pairs: 4833
-judge: model slice chars: 22293517
+judge: model turns: 1124
+judge: model pairs: 5291
+judge: model slice chars: 22638715
 judge: model verdicts: 0
 judge: deferred turns: 0
 $ uv run python -m recall report
