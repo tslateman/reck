@@ -58,6 +58,7 @@ class Turn:
     explicit_recalls: list[ExplicitRecall] = field(default_factory=list)
     mutations: list[Mutation] = field(default_factory=list)
     slice: str = ""
+    authored: str = ""
 
     @classmethod
     def from_dict(cls, d: dict) -> Turn:
