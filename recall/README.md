@@ -19,7 +19,8 @@ transcripts ──extract──▶ turns ──judge──▶ verdicts ──rep
 | `python -m recall nightly` | Runs extract, judges turns from the last two days, and renders the report.          |
 
 `judge` takes `--dry-run` to write mechanical verdicts only and count the model
-work, `--limit N` to cap model calls per run, and `--model` to override
+work, `--limit N` to cap model turns per run, `--concurrency N` to run N model calls
+at once, and `--model` to override
 `claude-haiku-4-5-20251001`, and `--common-token-share` (default `0.02`) to set
 the share of all extracted turns above which a token Claude writes counts as
 routine rather than as a citation. `report` takes `--seed` for the calibration
@@ -27,7 +28,11 @@ sample. Every command takes `--state-dir`, `--projects-dir`, and `--memory-db`.
 
 `judge` skips any (session, prompt, memory) pair that already has a verdict,
 so a failed run is fixed by running it again. It retries a turn once when the
-model breaks the verdict contract and raises on the second failure. Memories
+model breaks the verdict contract. After a second failure it appends the turn to
+`failures/<date>.jsonl` and moves on, leaving the pairs unjudged for a later
+run; the report counts those turns. The run raises at the end when more than
+10% of its model turns fail, and at once on a timeout or a `claude -p` error.
+Memories
 marked `isPrivate` in `~/.claude/memory.sqlite` get mechanical verdicts only.
 
 ## State
@@ -38,6 +43,7 @@ Everything lives under `~/.claude/recall-judgment/`:
 | ----------------------- | ----------------------------------------- |
 | `turns/<session>.jsonl` | One `Turn` per prompt                     |
 | `verdicts/<date>.jsonl` | One `VerdictRecord` per (turn, memory)    |
+| `failures/<date>.jsonl` | Turns the model judge failed twice        |
 | `reports/<date>.md`     | Verdict counts, precision, score buckets  |
 | `logs/`                 | launchd stdout and stderr for the nightly |
 

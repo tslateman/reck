@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import random
 from collections import Counter, defaultdict
+from pathlib import Path
 
 from recall.records import RecallKind, RecallVerdict, VerdictRecord
 
@@ -29,16 +30,22 @@ def render_report(
     sample_size: int,
     seed: int,
     min_recalls: int = 5,
+    *,
+    unjudged_turns: int,
+    failures_dir: Path,
 ) -> str:
     """Return the report as markdown.
 
     `memory_texts` must hold the text of every memory listed under dead weight
     and in the calibration sample. `min_recalls` is the recall count at which a
-    never-used memory counts as dead weight.
+    never-used memory counts as dead weight. `unjudged_turns` counts turns the
+    model judge failed on that still lack verdicts; their records are in
+    `failures_dir`.
     """
     sample = calibration_sample(verdicts, sample_size, seed)
     sections = [
         "# Recall judgment report",
+        f"Unjudged turns: {unjudged_turns}. Failure records: `{failures_dir}`.",
         summary_section(verdicts),
         precision_section(verdicts),
         score_bucket_section(verdicts),

@@ -43,7 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     judge = commands.add_parser("judge", help="Judge every unjudged (turn, memory) pair.")
     judge.add_argument("--model", default=DEFAULT_MODEL)
     judge.add_argument("--backend", choices=BACKENDS, default="cli", help="cli runs claude -p; api needs a key.")
-    judge.add_argument("--limit", type=int, help="Maximum model calls this run.")
+    judge.add_argument("--limit", type=int, help="Maximum model turns this run.")
+    judge.add_argument("--concurrency", type=int, default=1, help="Model calls to run at once.")
     judge.add_argument("--dry-run", action="store_true", help="Write mechanical verdicts only and count model work.")
     judge.add_argument(
         "--common-token-share",
@@ -57,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     nightly.add_argument("--model", default=DEFAULT_MODEL)
     nightly.add_argument("--backend", choices=BACKENDS, default="cli")
     nightly.add_argument("--limit", type=int)
+    nightly.add_argument("--concurrency", type=int, default=1)
     nightly.add_argument("--seed", type=int, default=0)
     return parser
 
@@ -82,6 +84,7 @@ def main(argv: list[str] | None = None) -> None:
             now,
             since=now - NIGHTLY_WINDOW if args.command == "nightly" else None,
             limit=args.limit,
+            concurrency=args.concurrency,
             dry_run=args.command == "judge" and args.dry_run,
             common_token_share=args.common_token_share if args.command == "judge" else COMMON_TOKEN_SHARE,
         )

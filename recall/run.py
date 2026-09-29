@@ -7,12 +7,15 @@ temporary directories.
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import TypeVar
 
 from recall.extract import extract_session
 from recall.judge import JudgeClient, JudgeResponseError, judge_turn
@@ -25,6 +28,23 @@ PROJECTS_DIR = Path.home() / ".claude" / "projects"
 MEMORY_DB = Path.home() / ".claude" / "memory.sqlite"
 CALIBRATION_SAMPLE_SIZE = 40
 COMMON_TOKEN_SHARE = 0.02
+MAX_FAILURE_SHARE = 0.10
+
+T = TypeVar("T")
+R = TypeVar("R")
+
+
+class JudgeFailureCeilingError(RuntimeError):
+    """Too many turns in one run broke the verdict contract twice."""
+
+
+@dataclass
+class TurnFailure:
+    session: str
+    prompt_uuid: str
+    ids: list[int]
+    errors: list[str]
+    judged_at: str
 
 
 @dataclass
@@ -45,6 +65,7 @@ class JudgeSummary:
     model_slice_chars: int
     model_verdicts: int
     deferred_turns: int
+    failed_turns: int
 
 
 def extract_stage(projects_dir: Path, state_dir: Path) -> ExtractSummary:
@@ -72,25 +93,34 @@ def judge_stage(
     limit: int | None = None,
     dry_run: bool = False,
     common_token_share: float = COMMON_TOKEN_SHARE,
+    concurrency: int = 1,
+    max_failure_share: float = MAX_FAILURE_SHARE,
 ) -> JudgeSummary:
     """Append new verdicts to `verdicts/<today>.jsonl` and return what was judged.
 
     Pairs that already have a verdict in any verdict file are skipped. Private
-    memories get mechanical verdicts only. `limit` caps model calls; turns past
+    memories get mechanical verdicts only. `limit` caps model turns; turns past
     it are counted as deferred and judged by a later run. `dry_run` writes the
     mechanical verdicts and counts what the model would see without calling it.
-    `client_factory` is called once, on the first model call. A distinctive
+    `client_factory` is called once, before the first model call. A distinctive
     token in the `authored` text of more than `common_token_share` of all
     extracted turns never counts as a citation.
+
+    Up to `concurrency` model calls run at once. A turn whose response breaks
+    the verdict contract twice is appended to `failures/<today>.jsonl` and left
+    for a later run; if more than `max_failure_share` of the model turns fail,
+    `JudgeFailureCeilingError` is raised once every result is written. Any
+    other error from the client raises at once.
     """
     judged_at = now.isoformat().replace("+00:00", "Z")
     existing = {v.key for path in sorted((state_dir / "verdicts").glob("*.jsonl")) for v in read_verdicts(path)}
     private = private_memory_ids(memory_db)
     out = state_dir / "verdicts" / f"{today.isoformat()}.jsonl"
-    summary = JudgeSummary(0, 0, 0, 0, 0, 0, 0, 0, 0)
-    client: JudgeClient | None = None
+    failures_out = state_dir / "failures" / f"{today.isoformat()}.jsonl"
+    summary = JudgeSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     all_turns = load_turns(state_dir, None)
     common = common_tokens(all_turns, common_token_share)
+    jobs: list[tuple[Turn, list[int]]] = []
     for turn in all_turns if since is None else recent(all_turns, since):
         summary.turns += 1
         mechanical, undecided = classify(turn, judged_at, common)
@@ -110,30 +140,78 @@ def judge_stage(
         summary.model_turns += 1
         summary.model_pairs += len(model_ids)
         summary.model_slice_chars += len(turn.slice)
-        if dry_run:
-            continue
-        if client is None:
-            client = client_factory()
-        verdicts = judge_with_retry(turn, model_ids, client, model, judged_at)
-        write_jsonl(out, verdicts)
-        summary.model_verdicts += len(verdicts)
+        jobs.append((turn, model_ids))
+    if dry_run or not jobs:
+        return summary
+    client = client_factory()
+    for result in bounded_map(lambda job: judge_or_fail(*job, client, model, judged_at), jobs, concurrency):
+        if isinstance(result, TurnFailure):
+            append_failure(failures_out, result)
+            summary.failed_turns += 1
+        else:
+            write_jsonl(out, result)
+            summary.model_verdicts += len(result)
+    if summary.failed_turns > max_failure_share * summary.model_turns:
+        raise JudgeFailureCeilingError(
+            f"{summary.failed_turns} of {summary.model_turns} model turns failed judging; see {failures_out}"
+        )
     return summary
 
 
-def judge_with_retry(
+def judge_or_fail(
     turn: Turn, memory_ids: list[int], client: JudgeClient, model: str, judged_at: str
-) -> list[VerdictRecord]:
-    """Call `judge_turn`, retrying once on `JudgeResponseError`; a second failure raises."""
-    try:
-        return judge_turn(turn, memory_ids, client, model, judged_at)
-    except JudgeResponseError:
-        return judge_turn(turn, memory_ids, client, model, judged_at)
+) -> list[VerdictRecord] | TurnFailure:
+    """Call `judge_turn`, retrying once on `JudgeResponseError`; return a `TurnFailure` after the second."""
+    errors = []
+    for _ in range(2):
+        try:
+            return judge_turn(turn, memory_ids, client, model, judged_at)
+        except JudgeResponseError as e:
+            errors.append(str(e))
+    return TurnFailure(turn.session, turn.prompt_uuid, memory_ids, errors, judged_at)
+
+
+def bounded_map(fn: Callable[[T], R], items: list[T], concurrency: int) -> Iterator[R]:
+    """Yield `fn(item)` for each item as it finishes, with at most `concurrency` calls in flight."""
+    with ThreadPoolExecutor(concurrency) as pool:
+        in_flight: set[Future[R]] = set()
+        for item in items:
+            if len(in_flight) >= concurrency:
+                done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+                yield from (future.result() for future in done)
+            in_flight.add(pool.submit(fn, item))
+        yield from (future.result() for future in as_completed(in_flight))
+
+
+def append_failure(path: Path, failure: TurnFailure) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(asdict(failure)) + "\n")
+
+
+def unjudged_turns(state_dir: Path, verdict_keys: set[tuple[str, str, int]]) -> int:
+    """Return how many recorded failing turns still have a pair without a verdict."""
+    failures = [json.loads(line) for path in sorted((state_dir / "failures").glob("*.jsonl")) for line in path.open()]
+    return len(
+        {
+            (f["session"], f["prompt_uuid"])
+            for f in failures
+            if any((f["session"], f["prompt_uuid"], i) not in verdict_keys for i in f["ids"])
+        }
+    )
 
 
 def report_stage(state_dir: Path, today: date, seed: int) -> Path:
     """Render every verdict to `reports/<today>.md` and return its path."""
     verdicts = [v for path in sorted((state_dir / "verdicts").glob("*.jsonl")) for v in read_verdicts(path)]
-    report = render_report(verdicts, memory_texts(load_turns(state_dir, None)), CALIBRATION_SAMPLE_SIZE, seed)
+    report = render_report(
+        verdicts,
+        memory_texts(load_turns(state_dir, None)),
+        CALIBRATION_SAMPLE_SIZE,
+        seed,
+        unjudged_turns=unjudged_turns(state_dir, {v.key for v in verdicts}),
+        failures_dir=state_dir / "failures",
+    )
     out = state_dir / "reports" / f"{today.isoformat()}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report)

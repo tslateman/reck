@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from recall.records import RecallKind, RecallVerdict, VerdictRecord
 from recall.report import (
     bucket_floor,
@@ -9,6 +11,8 @@ from recall.report import (
 )
 
 V = RecallVerdict
+
+FAILURES = Path("/state/failures")
 
 
 def verdict(
@@ -53,13 +57,13 @@ def test_precision_counts_everything_but_irrelevant_per_kind():
         verdict(6, V.CITED, recall_kind=RecallKind.EXPLICIT),
         verdict(7, V.SUPERSEDED, recall_kind=RecallKind.EXPLICIT),
     ]
-    report = render_report(verdicts, {}, sample_size=0, seed=0)
+    report = render_report(verdicts, {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
     assert "| automatic | 2 | 4 | 50% |" in report
     assert "| explicit | 2 | 3 | 67% |" in report
 
 
 def test_precision_reports_na_for_a_kind_with_no_recalls():
-    report = render_report([verdict(1, V.FOLLOWED)], {}, sample_size=0, seed=0)
+    report = render_report([verdict(1, V.FOLLOWED)], {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
     assert "| explicit | 0 | 0 | n/a |" in report
 
 
@@ -99,7 +103,7 @@ def test_dead_weight_requires_threshold_and_no_use():
 def test_dead_weight_section_shows_truncated_first_line():
     verdicts = [verdict(9, V.IRRELEVANT, prompt_uuid=f"p{i}") for i in range(5)]
     text = "x" * 100 + "\nsecond line"
-    report = render_report(verdicts, {9: text}, sample_size=0, seed=0)
+    report = render_report(verdicts, {9: text}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
     assert f"| 9 | 5 | {'x' * 77}... |" in report
     assert "second line" not in report
 
@@ -110,7 +114,7 @@ def test_contradicted_lists_every_pair_with_reason_and_evidence():
         verdict(6, V.CONTRADICTED, session="sb", reason="Wrote a | pipe", evidence=""),
         verdict(7, V.FOLLOWED),
     ]
-    report = render_report(verdicts, {}, sample_size=0, seed=0)
+    report = render_report(verdicts, {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
     assert "| 5 | sa | Used rebase --skip | git rebase --skip |" in report
     assert "| 6 | sb | Wrote a \\| pipe |  |" in report
 
@@ -133,7 +137,9 @@ def test_calibration_sample_excludes_mechanical_verdicts():
 def test_calibration_listing_hides_verdicts_and_answer_key_matches_it():
     verdicts = mixed_verdicts()
     texts = {100 + i: f"memory text {i}" for i in range(len(RecallVerdict))}
-    report = render_report(verdicts, texts, sample_size=5, seed=3, min_recalls=99)
+    report = render_report(
+        verdicts, texts, sample_size=5, seed=3, min_recalls=99, unjudged_turns=0, failures_dir=FAILURES
+    )
     listing, key = report.split("## Answer key")
     listing = listing.split("## Calibration sample")[1]
     sample = calibration_sample(verdicts, 5, seed=3)

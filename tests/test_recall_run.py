@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass, field
@@ -8,10 +9,17 @@ from typing import Any
 import pytest
 
 from recall.__main__ import client_factory, main
-from recall.cli_client import ClaudeCliClient
-from recall.judge import TOOL_NAME, JudgeResponseError
+from recall.cli_client import ClaudeCliClient, ClaudeCliError
+from recall.judge import TOOL_NAME
 from recall.records import Recall, RecallVerdict, Turn, read_turns, read_verdicts, write_jsonl
-from recall.run import extract_stage, judge_stage, memory_texts, private_memory_ids, report_stage
+from recall.run import (
+    JudgeFailureCeilingError,
+    extract_stage,
+    judge_stage,
+    memory_texts,
+    private_memory_ids,
+    report_stage,
+)
 
 PROJECTS = Path(__file__).parent / "fixtures" / "recall"
 SESSION = "0f0f0f0f-1111-4222-8333-444444444444"
@@ -36,12 +44,16 @@ class Response:
 @dataclass
 class FakeMessages:
     bad_responses: int = 0
+    bad_ids: frozenset[int] = frozenset()
+    error: Exception | None = None
     calls: list[list[int]] = field(default_factory=list)
 
     def create(self, **kwargs: Any) -> Response:
         ids = kwargs["tools"][0]["input_schema"]["properties"]["verdicts"]["items"]["properties"]["memory_id"]["enum"]
         self.calls.append(ids)
-        if len(self.calls) <= self.bad_responses:
+        if self.error is not None:
+            raise self.error
+        if len(self.calls) <= self.bad_responses or self.bad_ids & set(ids):
             return Response(stop_reason="end_turn", content=[])
         entries = [
             {"memory_id": i, "verdict": "irrelevant", "confidence": 0.9, "reason": "Unrelated.", "evidence": ""}
@@ -142,11 +154,72 @@ def test_bad_response_is_retried_once(state, memory_db):
     assert summary.model_verdicts == 3
 
 
-def test_second_bad_response_raises_and_writes_no_model_verdict(state, memory_db):
-    client = FakeClient(FakeMessages(bad_responses=2))
-    with pytest.raises(JudgeResponseError):
+def failure_records(state_dir):
+    return [json.loads(line) for path in sorted((state_dir / "failures").glob("*.jsonl")) for line in path.open()]
+
+
+def test_second_bad_response_is_recorded_and_the_run_continues(state, memory_db):
+    client = FakeClient(FakeMessages(bad_ids=frozenset({301})))
+    summary = judge(state, memory_db, lambda: client, max_failure_share=0.5)
+    [failure] = failure_records(state)
+    assert (failure["session"], failure["ids"], failure["judged_at"]) == (SESSION, [301], "2026-09-29T08:00:00Z")
+    assert len(failure["errors"]) == 2
+    assert all("stop_reason" in error for error in failure["errors"])
+    assert (summary.model_verdicts, summary.failed_turns) == (2, 1)
+    assert 301 not in {v.memory_id for v in all_verdicts(state)}
+
+
+def test_failures_above_the_ceiling_raise_after_recording_them(state, memory_db):
+    client = FakeClient(FakeMessages(bad_ids=frozenset({102, 301, 401})))
+    with pytest.raises(JudgeFailureCeilingError, match="3 of 3 model turns failed"):
         judge(state, memory_db, lambda: client)
+    assert len(failure_records(state)) == 3
     assert all(v.judge_model == "mechanical" for v in all_verdicts(state))
+
+
+def test_a_later_run_retries_the_failed_turn(state, memory_db):
+    judge(state, memory_db, lambda: FakeClient(FakeMessages(bad_ids=frozenset({301}))), max_failure_share=0.5)
+    client = FakeClient()
+    summary = judge(state, memory_db, lambda: client)
+    assert client.messages.calls == [[301]]
+    assert summary.model_verdicts == 1
+
+
+def test_infrastructure_errors_raise_at_once(state, memory_db):
+    client = FakeClient(FakeMessages(error=ClaudeCliError("claude -p exited 1")))
+    with pytest.raises(ClaudeCliError):
+        judge(state, memory_db, lambda: client)
+    assert client.messages.calls == [[102]]
+    assert failure_records(state) == []
+
+
+def test_concurrent_run_writes_the_same_verdicts_as_a_sequential_one(tmp_path, memory_db):
+    def verdict_set(state_dir):
+        return sorted((v.key, v.verdict, v.judge_model) for v in all_verdicts(state_dir))
+
+    sequential, concurrent = tmp_path / "sequential", tmp_path / "concurrent"
+    for state_dir, concurrency in ((sequential, 1), (concurrent, 4)):
+        extract_stage(PROJECTS, state_dir)
+        judge(state_dir, memory_db, FakeClient, concurrency=concurrency, max_failure_share=0.5)
+    assert verdict_set(concurrent) == verdict_set(sequential)
+    assert len(verdict_set(sequential)) == 5
+
+
+def test_concurrent_run_records_the_same_failures(tmp_path, memory_db):
+    for concurrency in (1, 4):
+        state_dir = tmp_path / str(concurrency)
+        extract_stage(PROJECTS, state_dir)
+        client = FakeClient(FakeMessages(bad_ids=frozenset({301})))
+        judge(state_dir, memory_db, lambda: client, concurrency=concurrency, max_failure_share=0.5)
+        assert [f["ids"] for f in failure_records(state_dir)] == [[301]]
+
+
+def test_report_counts_turns_still_unjudged(state, memory_db):
+    judge(state, memory_db, lambda: FakeClient(FakeMessages(bad_ids=frozenset({301}))), max_failure_share=0.5)
+    report = report_stage(state, TODAY, seed=0).read_text()
+    assert f"Unjudged turns: 1. Failure records: `{state / 'failures'}`." in report
+    judge(state, memory_db, FakeClient)
+    assert "Unjudged turns: 0." in report_stage(state, TODAY, seed=0).read_text()
 
 
 def test_since_keeps_only_recent_turns(state, memory_db):
@@ -176,7 +249,7 @@ def test_report_renders_model_and_mechanical_verdicts(state, memory_db):
 def test_cli_dry_run_prints_counts(tmp_path, memory_db, capsys):
     args = ["--state-dir", str(tmp_path), "--projects-dir", str(PROJECTS), "--memory-db", str(memory_db)]
     main([*args, "extract"])
-    main([*args, "judge", "--dry-run", "--common-token-share", "0.5"])
+    main([*args, "judge", "--dry-run", "--common-token-share", "0.5", "--concurrency", "2"])
     main([*args, "report"])
     out = capsys.readouterr().out
     assert "extract: turns with recalls: 3" in out
