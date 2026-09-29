@@ -53,8 +53,12 @@ For each memory, report:
 - verdict: one of followed, contradicted, relevant_unused, irrelevant.
 - confidence: a number from 0 to 1 for how sure you are of the verdict.
 - reason: one sentence naming what in the turn decided the verdict.
-- evidence: a short quote, copied character for character from the TURN, that shows the verdict. Keep it under 200 \
-characters. Use an empty string for irrelevant.
+- evidence: a quote copied from the TURN as one unbroken span, character for character, that shows the act behind the \
+verdict. Keep it under 200 characters. It is never commentary, never a description of the turn, and never fragments \
+stitched together. followed and contradicted need evidence. relevant_unused may use an empty string, since an \
+omission has no passage to quote. irrelevant uses an empty string.
+
+If you cannot quote the act that shows followed or contradicted, choose relevant_unused.
 
 Call the record_verdicts tool once with one entry per memory, and no entries for ids not listed."""
 
@@ -191,7 +195,9 @@ def validate_entry(entry: dict, slice_text: str) -> dict:
     if verdict is RecallVerdict.IRRELEVANT:
         if evidence != "":
             raise JudgeResponseError(f"memory {memory_id}: irrelevant verdicts carry no evidence")
-    elif not evidence.strip() or collapse_whitespace(evidence) not in collapse_whitespace(slice_text):
+    elif (verdict is not RecallVerdict.RELEVANT_UNUSED or evidence != "") and (
+        not evidence.strip() or collapse_whitespace(evidence) not in collapse_whitespace(slice_text)
+    ):
         raise JudgeResponseError(f"memory {memory_id}: evidence {evidence!r} is not quoted from the turn")
     return {**entry, "verdict": verdict, "confidence": float(confidence)}
 

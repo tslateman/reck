@@ -266,3 +266,65 @@ def test_real_sdk_client_accepts_request_and_parses_reply():
     records = judge_turn(make_turn(), [6523, 7001], client, DEFAULT_MODEL, JUDGED_AT)
     assert [r.verdict for r in records] == [RecallVerdict.FOLLOWED, RecallVerdict.IRRELEVANT]
     assert sent[0]["tool_choice"] == {"type": "tool", "name": TOOL_NAME}
+
+
+ARTIFACT_SLICE = """\
+USER: create an artifact and focus on this part
+ASSISTANT: Writing the artifact now.
+TOOL Write: {"file_path": "gaps.html", "content": "<h1>Three gaps the Grok Bot writeup exposes in my agent stack</h1>\
+<p>The organizing idea: each gap sits at a specific moment in a delegated task's life where each one opens.</p>"}
+RESULT: File created"""
+
+STITCHED_EVIDENCE = (
+    'The artifact contains extensive prose: "Three gaps the Grok Bot writeup exposes in my agent stack... '
+    "a delegated task's life where each one opens.\" Generated without invoking duet:prose despite substantial "
+    "prose content."
+)
+COMMENTARY_EVIDENCE = (
+    'The assistant creates prose sections like "The organizing idea: each gap sits at a specific moment in a '
+    "delegated task's life\" but does not invoke duet:prose or reference the ~12,000 token cost warning."
+)
+
+
+def judge_artifact_turn(verdict: str, evidence: str) -> list:
+    turn = Turn(
+        session="03850ab6",
+        prompt_uuid="c6809d08",
+        ts="2026-09-01T13:57:25Z",
+        project="-Users-tslater-dev",
+        prompt="create an artifact and focus on this part",
+        recalls=[Recall(id=4228, scope="global", scorer="fts5", score=-9.0, text="Invoke duet:prose to write prose.")],
+        slice=ARTIFACT_SLICE,
+    )
+    response = tool_response(entry(4228, verdict, evidence=evidence))
+    return judge_turn(turn, [4228], FakeClient(response), DEFAULT_MODEL, JUDGED_AT)
+
+
+@pytest.mark.parametrize("verdict", ["followed", "contradicted"])
+@pytest.mark.parametrize("evidence", [STITCHED_EVIDENCE, COMMENTARY_EVIDENCE])
+def test_commentary_around_quoted_fragments_is_not_evidence(verdict: str, evidence: str):
+    with pytest.raises(JudgeResponseError, match="not quoted from the turn"):
+        judge_artifact_turn(verdict, evidence)
+
+
+def test_relevant_unused_needs_no_evidence():
+    [record] = judge_artifact_turn("relevant_unused", "")
+    assert (record.verdict, record.evidence) == (RecallVerdict.RELEVANT_UNUSED, "")
+
+
+def test_relevant_unused_evidence_when_given_must_be_verbatim():
+    with pytest.raises(JudgeResponseError, match="not quoted from the turn"):
+        judge_artifact_turn("relevant_unused", COMMENTARY_EVIDENCE)
+    [record] = judge_artifact_turn("relevant_unused", "The organizing idea: each gap sits at a specific moment")
+    assert record.verdict is RecallVerdict.RELEVANT_UNUSED
+
+
+def test_contradicted_needs_evidence():
+    with pytest.raises(JudgeResponseError, match="not quoted from the turn"):
+        judge_artifact_turn("contradicted", "")
+
+
+def test_prompt_demands_one_unbroken_quote_or_relevant_unused():
+    assert "one unbroken span" in SYSTEM_PROMPT
+    assert "never commentary" in SYSTEM_PROMPT
+    assert "choose relevant_unused" in SYSTEM_PROMPT
