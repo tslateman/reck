@@ -65,19 +65,32 @@ $ uv run python -m recall report
 report: /Users/tslater/.claude/recall-judgment/reports/2026-09-28.md
 ```
 
+## Backends
+
+`judge` and `nightly` take `--backend`:
+
+- `cli` (the default) runs `claude -p` once per turn on the Claude
+  subscription, so judging draws on the subscription's usage limits. Each call
+  runs in the empty directory `<state-dir>/cli-cwd` with no MCP servers, no
+  settings, no tools, and no saved session, so the `advise` hook never fires on
+  the judge's own prompts. A call that runs past 300 seconds is killed with its
+  whole process group.
+- `api` calls the Anthropic API and needs `ANTHROPIC_API_KEY`.
+
 ## Scheduling
 
-`bin/recall-nightly` reads the API key from the macOS Keychain item
-`anthropic-api-key`, exports it, and runs `python -m recall nightly`. It exits
-1 with instructions when the item is missing. Add the key once:
+`bin/recall-nightly` runs `python -m recall nightly` with any arguments it
+receives. With `--backend api` it first reads the API key from the macOS
+Keychain item `anthropic-api-key` and exits 1 with instructions when the item
+is missing. The default `cli` backend needs no key. To add one:
 
 ```console
 security add-generic-password -s anthropic-api-key -a "$USER" -w
 ```
 
 `~/Library/LaunchAgents/com.reck.recall-judgment.plist` runs the wrapper daily
-at 03:30. The plist holds no key. Load it only after the calibration in task 6
-of the plan passes:
+at 03:30 on the `cli` backend. The plist holds no key. Load it only after the
+calibration in task 6 of the plan passes:
 
 ```console
 launchctl load ~/Library/LaunchAgents/com.reck.recall-judgment.plist

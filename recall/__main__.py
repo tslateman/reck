@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import anthropic
 
-from recall.judge import DEFAULT_MODEL
+from recall.cli_client import ClaudeCliClient
+from recall.judge import DEFAULT_MODEL, JudgeClient
 from recall.run import (
     COMMON_TOKEN_SHARE,
     MEMORY_DB,
@@ -21,6 +23,14 @@ from recall.run import (
 )
 
 NIGHTLY_WINDOW = timedelta(days=2)
+BACKENDS = ("cli", "api")
+
+
+def client_factory(backend: str, state_dir: Path) -> Callable[[], JudgeClient]:
+    """Return a zero-argument constructor for the judge client of `backend`."""
+    if backend == "api":
+        return anthropic.Anthropic
+    return lambda: ClaudeCliClient(state_dir / "cli-cwd")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("extract", help="Parse transcripts into turns/<session>.jsonl.")
     judge = commands.add_parser("judge", help="Judge every unjudged (turn, memory) pair.")
     judge.add_argument("--model", default=DEFAULT_MODEL)
+    judge.add_argument("--backend", choices=BACKENDS, default="cli", help="cli runs claude -p; api needs a key.")
     judge.add_argument("--limit", type=int, help="Maximum model calls this run.")
     judge.add_argument("--dry-run", action="store_true", help="Write mechanical verdicts only and count model work.")
     judge.add_argument(
@@ -44,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--seed", type=int, default=0)
     nightly = commands.add_parser("nightly", help="Extract, judge the last two days, and report.")
     nightly.add_argument("--model", default=DEFAULT_MODEL)
+    nightly.add_argument("--backend", choices=BACKENDS, default="cli")
     nightly.add_argument("--limit", type=int)
     nightly.add_argument("--seed", type=int, default=0)
     return parser
@@ -64,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
         summary = judge_stage(
             args.state_dir,
             args.memory_db,
-            anthropic.Anthropic,
+            client_factory(args.backend, args.state_dir),
             args.model,
             today,
             now,

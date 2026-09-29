@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from recall.__main__ import main
+from recall.__main__ import client_factory, main
+from recall.cli_client import ClaudeCliClient
 from recall.judge import TOOL_NAME, JudgeResponseError
 from recall.records import Recall, RecallVerdict, Turn, read_turns, read_verdicts, write_jsonl
 from recall.run import extract_stage, judge_stage, memory_texts, private_memory_ids, report_stage
@@ -208,3 +209,10 @@ def test_common_tokens_are_counted_over_every_turn_not_only_the_window(tmp_path,
     summary = judge(tmp_path, memory_db, since=datetime(2026, 9, 29, tzinfo=UTC), dry_run=True, common_token_share=0.3)
     assert summary.turns == 2
     assert [(v.memory_id, v.verdict) for v in all_verdicts(tmp_path)] == [(9, RecallVerdict.CITED)]
+
+
+def test_backend_chooses_the_client_without_constructing_it(tmp_path):
+    client = client_factory("cli", tmp_path)()
+    assert isinstance(client, ClaudeCliClient)
+    assert client.messages.cwd == tmp_path / "cli-cwd"
+    assert client_factory("api", tmp_path).__name__ == "Anthropic"
