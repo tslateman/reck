@@ -8,16 +8,19 @@ from typing import Any
 
 import pytest
 
-from recall.__main__ import client_factory, main
+from recall.__main__ import build_parser, client_factory, main
 from recall.cli_client import ClaudeCliClient, ClaudeCliError
 from recall.judge import TOOL_NAME
 from recall.records import Recall, RecallVerdict, Turn, read_turns, read_verdicts, write_jsonl
 from recall.run import (
     JudgeFailureCeilingError,
+    RejudgeError,
+    calibration_pairs,
     extract_stage,
     judge_stage,
     memory_texts,
     private_memory_ids,
+    rejudge_sample,
     report_stage,
 )
 
@@ -289,3 +292,56 @@ def test_backend_chooses_the_client_without_constructing_it(tmp_path):
     assert isinstance(client, ClaudeCliClient)
     assert client.messages.cwd == tmp_path / "cli-cwd"
     assert client_factory("api", tmp_path).__name__ == "Anthropic"
+
+
+@pytest.fixture
+def public_db(tmp_path):
+    path = tmp_path / "public.sqlite"
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("CREATE TABLE Memory (id INTEGER PRIMARY KEY, content TEXT, isPrivate INTEGER)")
+        conn.commit()
+    return path
+
+
+def sampled_report(state_dir, memory_db):
+    judge(state_dir, memory_db, FakeClient)
+    return report_stage(state_dir, TODAY, seed=0)
+
+
+def test_calibration_pairs_read_every_sample_item_in_order(state, public_db):
+    report = sampled_report(state, public_db).read_text()
+    pairs = calibration_pairs(report)
+    assert sorted(memory_id for _, _, memory_id in pairs) == [102, 301, 302, 401]
+    assert {session for session, _, _ in pairs} == {SESSION}
+
+
+def test_rejudge_sample_calls_once_per_turn_and_leaves_verdicts_alone(state, public_db):
+    report = sampled_report(state, public_db)
+    verdicts_before = {p.name: p.read_bytes() for p in (state / "verdicts").glob("*.jsonl")}
+    client = FakeClient()
+    out = rejudge_sample(state, report, lambda: client, "test-model", date(2026, 9, 30), NOW)
+    assert out == state / "calibration" / "rejudge-2026-09-30.jsonl"
+    assert sorted(client.messages.calls) == [[102], [301, 302], [401]]
+    records = read_verdicts(out)
+    assert [v.key for v in records] == calibration_pairs(report.read_text())
+    assert all(v.judge_model == "test-model" for v in records)
+    assert {p.name: p.read_bytes() for p in (state / "verdicts").glob("*.jsonl")} == verdicts_before
+
+
+def test_rejudge_sample_refuses_to_overwrite_an_earlier_result(state, public_db):
+    report = sampled_report(state, public_db)
+    rejudge_sample(state, report, FakeClient, "test-model", TODAY, NOW)
+    with pytest.raises(FileExistsError):
+        rejudge_sample(state, report, FakeClient, "test-model", TODAY, NOW)
+
+
+def test_rejudge_sample_raises_when_a_turn_fails_twice(state, public_db):
+    report = sampled_report(state, public_db)
+    with pytest.raises(RejudgeError, match="301"):
+        rejudge_sample(state, report, lambda: FakeClient(FakeMessages(bad_ids=frozenset({301}))), "m", TODAY, NOW)
+    assert not (state / "calibration" / f"rejudge-{TODAY.isoformat()}.jsonl").exists()
+
+
+def test_rejudge_sample_subcommand_takes_a_report_path():
+    args = build_parser().parse_args(["rejudge-sample", "--report", "r.md", "--concurrency", "4"])
+    assert (args.command, args.report, args.backend, args.concurrency) == ("rejudge-sample", Path("r.md"), "cli", 4)

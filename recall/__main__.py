@@ -19,6 +19,7 @@ from recall.run import (
     STATE_DIR,
     extract_stage,
     judge_stage,
+    rejudge_sample,
     report_stage,
 )
 
@@ -54,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report = commands.add_parser("report", help="Render all verdicts to reports/<date>.md.")
     report.add_argument("--seed", type=int, default=0)
+    rejudge = commands.add_parser("rejudge-sample", help="Judge a report's calibration sample again.")
+    rejudge.add_argument("--report", type=Path, required=True)
+    rejudge.add_argument("--model", default=DEFAULT_MODEL)
+    rejudge.add_argument("--backend", choices=BACKENDS, default="cli")
+    rejudge.add_argument("--concurrency", type=int, default=1)
     nightly = commands.add_parser("nightly", help="Extract, judge the last two days, and report.")
     nightly.add_argument("--model", default=DEFAULT_MODEL)
     nightly.add_argument("--backend", choices=BACKENDS, default="cli")
@@ -89,6 +95,17 @@ def main(argv: list[str] | None = None) -> None:
             common_token_share=args.common_token_share if args.command == "judge" else COMMON_TOKEN_SHARE,
         )
         print_summary("judge", summary)
+    if args.command == "rejudge-sample":
+        path = rejudge_sample(
+            args.state_dir,
+            args.report,
+            client_factory(args.backend, args.state_dir),
+            args.model,
+            today,
+            now,
+            concurrency=args.concurrency,
+        )
+        print(f"rejudge-sample: {path}")
     if args.command in ("report", "nightly"):
         print(f"report: {report_stage(args.state_dir, today, args.seed)}")
 

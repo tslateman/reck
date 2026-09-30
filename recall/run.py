@@ -8,6 +8,7 @@ temporary directories.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
@@ -217,6 +218,55 @@ def report_stage(state_dir: Path, today: date, seed: int) -> Path:
     out = state_dir / "reports" / f"{today.isoformat()}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report)
+    return out
+
+
+SAMPLE_ITEM = re.compile(r"^\d+\. Memory (\d+), session `([^`]+)`, prompt `([^`]+)`", re.MULTILINE)
+
+
+class RejudgeError(RuntimeError):
+    """A sampled turn broke the verdict contract twice."""
+
+
+def calibration_pairs(report: str) -> list[tuple[str, str, int]]:
+    """Return `(session, prompt_uuid, memory_id)` for each item of the report's calibration sample, in order."""
+    section = report.split("## Calibration sample")[1].split("## Answer key")[0]
+    return [(session, prompt_uuid, int(memory_id)) for memory_id, session, prompt_uuid in SAMPLE_ITEM.findall(section)]
+
+
+def rejudge_sample(
+    state_dir: Path,
+    report_path: Path,
+    client_factory: Callable[[], JudgeClient],
+    model: str,
+    today: date,
+    now: datetime,
+    concurrency: int = 1,
+) -> Path:
+    """Judge again every pair in `report_path`'s calibration sample and write `calibration/rejudge-<today>.jsonl`.
+
+    Makes one model call per sampled turn, holding only that turn's sampled
+    ids. Writes nothing under `verdicts/`. Raises `FileExistsError` when the
+    output exists and `RejudgeError` when a turn fails twice.
+    """
+    out = state_dir / "calibration" / f"rejudge-{today.isoformat()}.jsonl"
+    if out.exists():
+        raise FileExistsError(f"{out} already exists; move it aside to judge the sample again")
+    pairs = calibration_pairs(report_path.read_text())
+    turns = {(t.session, t.prompt_uuid): t for t in load_turns(state_dir, None)}
+    ids_by_turn: dict[tuple[str, str], list[int]] = {}
+    for session, prompt_uuid, memory_id in pairs:
+        ids_by_turn.setdefault((session, prompt_uuid), []).append(memory_id)
+    jobs = [(turns[key], ids) for key, ids in ids_by_turn.items()]
+    judged_at = now.isoformat().replace("+00:00", "Z")
+    client = client_factory()
+    records: list[VerdictRecord] = []
+    for result in bounded_map(lambda job: judge_or_fail(*job, client, model, judged_at), jobs, concurrency):
+        if isinstance(result, TurnFailure):
+            raise RejudgeError(f"{result.session} {result.prompt_uuid} {result.ids}: {result.errors}")
+        records.extend(result)
+    order = {pair: index for index, pair in enumerate(pairs)}
+    write_jsonl(out, sorted(records, key=lambda v: order[v.key]))
     return out
 
 
