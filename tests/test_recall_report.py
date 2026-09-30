@@ -1,7 +1,10 @@
+import re
 from pathlib import Path
 
-from recall.records import RecallKind, RecallVerdict, VerdictRecord
+from recall.records import RecallKind, RecallVerdict, Turn, VerdictRecord
 from recall.report import (
+    AUTHORED_CAP,
+    PROMPT_CAP,
     bucket_floor,
     bucket_label,
     calibration_sample,
@@ -39,6 +42,31 @@ def verdict(
     )
 
 
+def turns_for(
+    verdicts: list[VerdictRecord], prompt: str = "tidy the parser", authored: str = "ASSISTANT: Tidied it."
+) -> dict[tuple[str, str], Turn]:
+    return {
+        (v.session, v.prompt_uuid): Turn(
+            session=v.session, prompt_uuid=v.prompt_uuid, ts="t", project="p", prompt=prompt, authored=authored
+        )
+        for v in verdicts
+    }
+
+
+def calibration_listing(verdicts: list[VerdictRecord], **turn_text: str) -> str:
+    report = render_report(
+        verdicts,
+        {v.memory_id: "memory text" for v in verdicts},
+        sample_size=5,
+        seed=3,
+        min_recalls=99,
+        unjudged_turns=0,
+        failures_dir=FAILURES,
+        turns=turns_for(verdicts, **turn_text),
+    )
+    return report.split("## Calibration sample")[1].split("## Answer key")[0]
+
+
 def mixed_verdicts() -> list[VerdictRecord]:
     records = []
     for i, kind in enumerate(RecallVerdict):
@@ -57,13 +85,15 @@ def test_precision_counts_everything_but_irrelevant_per_kind():
         verdict(6, V.CITED, recall_kind=RecallKind.EXPLICIT),
         verdict(7, V.SUPERSEDED, recall_kind=RecallKind.EXPLICIT),
     ]
-    report = render_report(verdicts, {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
+    report = render_report(verdicts, {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES, turns={})
     assert "| automatic | 2 | 4 | 50% |" in report
     assert "| explicit | 2 | 3 | 67% |" in report
 
 
 def test_precision_reports_na_for_a_kind_with_no_recalls():
-    report = render_report([verdict(1, V.FOLLOWED)], {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
+    report = render_report(
+        [verdict(1, V.FOLLOWED)], {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES, turns={}
+    )
     assert "| explicit | 0 | 0 | n/a |" in report
 
 
@@ -103,7 +133,9 @@ def test_dead_weight_requires_threshold_and_no_use():
 def test_dead_weight_section_shows_truncated_first_line():
     verdicts = [verdict(9, V.IRRELEVANT, prompt_uuid=f"p{i}") for i in range(5)]
     text = "x" * 100 + "\nsecond line"
-    report = render_report(verdicts, {9: text}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
+    report = render_report(
+        verdicts, {9: text}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES, turns={}
+    )
     assert f"| 9 | 5 | {'x' * 77}... |" in report
     assert "second line" not in report
 
@@ -114,7 +146,7 @@ def test_contradicted_lists_every_pair_with_reason_and_evidence():
         verdict(6, V.CONTRADICTED, session="sb", reason="Wrote a | pipe", evidence=""),
         verdict(7, V.FOLLOWED),
     ]
-    report = render_report(verdicts, {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES)
+    report = render_report(verdicts, {}, sample_size=0, seed=0, unjudged_turns=0, failures_dir=FAILURES, turns={})
     assert "| 5 | sa | Used rebase --skip | git rebase --skip |" in report
     assert "| 6 | sb | Wrote a \\| pipe |  |" in report
 
@@ -138,7 +170,14 @@ def test_calibration_listing_hides_verdicts_and_answer_key_matches_it():
     verdicts = mixed_verdicts()
     texts = {100 + i: f"memory text {i}" for i in range(len(RecallVerdict))}
     report = render_report(
-        verdicts, texts, sample_size=5, seed=3, min_recalls=99, unjudged_turns=0, failures_dir=FAILURES
+        verdicts,
+        texts,
+        sample_size=5,
+        seed=3,
+        min_recalls=99,
+        unjudged_turns=0,
+        failures_dir=FAILURES,
+        turns=turns_for(verdicts),
     )
     listing, key = report.split("## Answer key")
     listing = listing.split("## Calibration sample")[1]
@@ -150,3 +189,43 @@ def test_calibration_listing_hides_verdicts_and_answer_key_matches_it():
         assert f"{number}. Memory {v.memory_id}, session `{v.session}`, prompt `{v.prompt_uuid}`" in listing
         assert f"| {number} | {v.memory_id} | {v.verdict.value} | 0.80 |" in key
     assert report.rstrip().endswith(key.rstrip())
+
+
+def test_calibration_item_shows_the_prompt_and_what_claude_did():
+    authored = 'TOOL Bash: {"command": "git push"}'
+    first = calibration_listing(mixed_verdicts(), prompt="do\n  it", authored=authored).split("\n2. ")[0]
+    assert "    Prompt: do it\n" in first
+    assert f"    <details><summary>What Claude did ({len(authored)} chars)</summary>\n\n    ```text\n" in first
+    assert '    TOOL Bash: {"command": "git push"}\n    ```\n\n    </details>\n\n    Verdict: ______' in first
+    assert "chars cut" not in first
+
+
+def test_long_prompt_and_authored_text_are_cut_and_say_so():
+    authored = "ASSISTANT: " + "x" * (AUTHORED_CAP + 489)
+    listing = calibration_listing(mixed_verdicts(), prompt="p" * (PROMPT_CAP + 50), authored=authored)
+    first = listing.split("\n2. ")[0]
+    assert f"    Prompt: {'p' * PROMPT_CAP}…\n" in first
+    assert f"What Claude did ({AUTHORED_CAP + 500} chars)" in first
+    assert "    _500 chars cut._" in first
+    assert "x" * (AUTHORED_CAP - 11) in first
+    assert "x" * (AUTHORED_CAP - 10) not in first
+
+
+def test_authored_text_holding_a_fence_gets_a_longer_fence():
+    first = calibration_listing(mixed_verdicts(), authored="ASSISTANT: ```py\nx = 1\n```").split("\n2. ")[0]
+    assert "    ````text\n" in first
+    assert "    ````\n\n    </details>" in first
+
+
+def test_turn_text_does_not_change_which_pairs_are_sampled():
+    def pairs(listing: str) -> list[str]:
+        return [line for line in listing.splitlines() if re.match(r"\d+\. Memory ", line)]
+
+    verdicts = mixed_verdicts()
+    short = pairs(calibration_listing(verdicts, prompt="a", authored="b"))
+    long = pairs(calibration_listing(verdicts, prompt="c" * 900, authored="d" * 9000))
+    expected = [
+        f"{n}. Memory {v.memory_id}, session `{v.session}`, prompt `{v.prompt_uuid}`, automatic, fts5 {v.score:.3f}"
+        for n, v in enumerate(calibration_sample(verdicts, 5, seed=3), start=1)
+    ]
+    assert short == long == expected

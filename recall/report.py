@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import math
 import random
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from recall.records import RecallKind, RecallVerdict, VerdictRecord
+from recall.records import RecallKind, RecallVerdict, Turn, VerdictRecord
 
 MODEL_VERDICTS = (
     RecallVerdict.FOLLOWED,
@@ -22,6 +23,8 @@ MODEL_VERDICTS = (
 UNUSED_VERDICTS = frozenset({RecallVerdict.IRRELEVANT, RecallVerdict.RELEVANT_UNUSED})
 USED_VERDICTS = frozenset({RecallVerdict.CITED, RecallVerdict.FOLLOWED})
 SNIPPET_LENGTH = 80
+PROMPT_CAP = 500
+AUTHORED_CAP = 6000
 
 
 def render_report(
@@ -33,6 +36,7 @@ def render_report(
     *,
     unjudged_turns: int,
     failures_dir: Path,
+    turns: dict[tuple[str, str], Turn],
 ) -> str:
     """Return the report as markdown.
 
@@ -40,7 +44,8 @@ def render_report(
     and in the calibration sample. `min_recalls` is the recall count at which a
     never-used memory counts as dead weight. `unjudged_turns` counts turns the
     model judge failed on that still lack verdicts; their records are in
-    `failures_dir`.
+    `failures_dir`. `turns`, keyed by `(session, prompt_uuid)`, must hold the
+    turn of every pair in the calibration sample.
     """
     sample = calibration_sample(verdicts, sample_size, seed)
     sections = [
@@ -51,7 +56,7 @@ def render_report(
         score_bucket_section(verdicts),
         dead_weight_section(verdicts, memory_texts, min_recalls),
         contradicted_section(verdicts),
-        calibration_section(sample, memory_texts, verdicts),
+        calibration_section(sample, memory_texts, verdicts, turns),
         answer_key_section(sample),
     ]
     return "\n\n".join(sections) + "\n"
@@ -147,13 +152,17 @@ def calibration_sample(verdicts: list[VerdictRecord], sample_size: int, seed: in
 
 
 def calibration_section(
-    sample: list[VerdictRecord], memory_texts: dict[int, str], verdicts: list[VerdictRecord]
+    sample: list[VerdictRecord],
+    memory_texts: dict[int, str],
+    verdicts: list[VerdictRecord],
+    turns: dict[tuple[str, str], Turn],
 ) -> str:
     model_judged = sum(1 for v in verdicts if v.verdict in MODEL_VERDICTS)
     entries = [
         f"{number}. Memory {v.memory_id}, session `{v.session}`, prompt `{v.prompt_uuid}`, "
         f"{v.recall_kind.value}{score_suffix(v.score)}\n\n"
         f"    > {one_line(memory_texts[v.memory_id])}\n\n"
+        f"{turn_excerpt(turns[(v.session, v.prompt_uuid)])}\n\n"
         "    Verdict: ______"
         for number, v in enumerate(sample, start=1)
     ]
@@ -162,6 +171,30 @@ def calibration_section(
         f"{len(sample)} of {model_judged} model-judged pairs. Grade each blind, then compare with the answer key.\n\n"
         + ("\n\n".join(entries) if entries else "None.")
     )
+
+
+def turn_excerpt(turn: Turn) -> str:
+    """Return the prompt and a collapsible excerpt of what Claude wrote, indented to sit inside a list item."""
+    prompt = one_line(turn.prompt)
+    if len(prompt) > PROMPT_CAP:
+        prompt = prompt[:PROMPT_CAP] + "…"
+    shown = turn.authored[:AUTHORED_CAP]
+    fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", shown)), default=0) + 1)
+    lines = [
+        f"Prompt: {prompt}",
+        "",
+        f"<details><summary>What Claude did ({len(turn.authored)} chars)</summary>",
+        "",
+        f"{fence}text",
+        *shown.splitlines(),
+        fence,
+        "",
+    ]
+    cut = len(turn.authored) - len(shown)
+    if cut:
+        lines += [f"_{cut} chars cut._", ""]
+    lines.append("</details>")
+    return "\n".join(f"    {line}" if line else "" for line in lines)
 
 
 def answer_key_section(sample: list[VerdictRecord]) -> str:

@@ -204,13 +204,15 @@ def unjudged_turns(state_dir: Path, verdict_keys: set[tuple[str, str, int]]) -> 
 def report_stage(state_dir: Path, today: date, seed: int) -> Path:
     """Render every verdict to `reports/<today>.md` and return its path."""
     verdicts = [v for path in sorted((state_dir / "verdicts").glob("*.jsonl")) for v in read_verdicts(path)]
+    turns = load_turns(state_dir, None)
     report = render_report(
         verdicts,
-        memory_texts(load_turns(state_dir, None)),
+        memory_texts(turns),
         CALIBRATION_SAMPLE_SIZE,
         seed,
         unjudged_turns=unjudged_turns(state_dir, {v.key for v in verdicts}),
         failures_dir=state_dir / "failures",
+        turns={(t.session, t.prompt_uuid): t for t in turns},
     )
     out = state_dir / "reports" / f"{today.isoformat()}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
