@@ -1,7 +1,8 @@
 import json
+import re
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from recall.run import (
     RejudgeError,
     calibration_pairs,
     extract_stage,
+    heldout_judge,
+    heldout_sample,
     judge_stage,
     memory_texts,
     private_memory_ids,
@@ -345,3 +348,61 @@ def test_rejudge_sample_raises_when_a_turn_fails_twice(state, public_db):
 def test_rejudge_sample_subcommand_takes_a_report_path():
     args = build_parser().parse_args(["rejudge-sample", "--report", "r.md", "--concurrency", "4"])
     assert (args.command, args.report, args.backend, args.concurrency) == ("rejudge-sample", Path("r.md"), "cli", 4)
+
+
+def test_heldout_pool_skips_turns_with_model_verdicts_in_verdicts_or_calibration(state, memory_db):
+    judge(state, memory_db, FakeClient, limit=1)
+    calibration = state / "calibration" / "rejudge-2026-09-30.jsonl"
+    rejudged = [v for v in all_verdicts(state) if v.memory_id == 102]
+    write_jsonl(calibration, [replace(rejudged[0], prompt_uuid="00000000-0000-4000-8000-000000000032", memory_id=401)])
+    _, pairs = heldout_sample(state, memory_db, seed=5, size=1)
+    assert [(row["n"], row["memory_id"], row["session"]) for row in map(json.loads, pairs.open())] == [
+        (1, 301, SESSION)
+    ]
+
+
+def test_heldout_blind_file_has_items_and_no_answers(state, memory_db):
+    blind, pairs = heldout_sample(state, memory_db, seed=5, size=2)
+    text = blind.read_text()
+    header = "# Held-out calibration sample\n\n2 pairs drawn with seed 5 from 3 undecided pairs on 3 turns"
+    assert text.startswith(header)
+    assert [line.split(",")[0] for line in text.splitlines() if re.match(r"\d+\. Memory ", line)] == [
+        f"{row['n']}. Memory {row['memory_id']}" for row in map(json.loads, pairs.open())
+    ]
+    assert text.count("Verdict: ______") == 2
+    assert text.count("<details><summary>What Claude did") == 2
+    for leak in ("Answer key", 'verdict":', "irrelevant", "relevant_unused", "followed", "confidence"):
+        assert leak not in text
+
+
+def test_heldout_draw_is_fixed_by_seed(tmp_path, memory_db):
+    drawn = []
+    for name in ("a", "b"):
+        extract_stage(PROJECTS, tmp_path / name)
+        _, pairs = heldout_sample(tmp_path / name, memory_db, seed=11, size=3)
+        drawn.append(pairs.read_text())
+    assert drawn[0] == drawn[1]
+
+
+def test_heldout_sample_refuses_to_overwrite(state, memory_db):
+    heldout_sample(state, memory_db, seed=5, size=1)
+    with pytest.raises(FileExistsError):
+        heldout_sample(state, memory_db, seed=6, size=1)
+
+
+def test_heldout_judge_writes_one_verdict_per_pair_in_draw_order(state, memory_db):
+    _, pairs = heldout_sample(state, memory_db, seed=5, size=3)
+    client = FakeClient()
+    out = heldout_judge(state, lambda: client, "test-model", NOW)
+    rows = [json.loads(line) for line in pairs.open()]
+    assert out == state / "calibration" / "heldout-judge.jsonl"
+    assert [v.key for v in read_verdicts(out)] == [(r["session"], r["prompt_uuid"], r["memory_id"]) for r in rows]
+    assert sorted(client.messages.calls) == [[102], [301], [401]]
+    assert not (state / "verdicts").exists() or all(v.judge_model == "mechanical" for v in all_verdicts(state))
+
+
+def test_heldout_subcommands_parse():
+    parser = build_parser()
+    assert parser.parse_args(["heldout-sample"]).seed == 20260930
+    args = parser.parse_args(["heldout-judge", "--concurrency", "4"])
+    assert (args.command, args.backend, args.concurrency) == ("heldout-judge", "cli", 4)

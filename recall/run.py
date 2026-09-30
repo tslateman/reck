@@ -8,6 +8,7 @@ temporary directories.
 from __future__ import annotations
 
 import json
+import random
 import re
 import sqlite3
 from collections.abc import Callable, Iterator
@@ -20,9 +21,10 @@ from typing import TypeVar
 
 from recall.extract import extract_session
 from recall.judge import JudgeClient, JudgeResponseError, judge_turn
+from recall.mechanical import JUDGE_MODEL as MECHANICAL_MODEL
 from recall.mechanical import classify, common_tokens
-from recall.records import Turn, VerdictRecord, read_turns, read_verdicts, write_jsonl
-from recall.report import render_report
+from recall.records import RecallKind, Turn, VerdictRecord, read_turns, read_verdicts, write_jsonl
+from recall.report import calibration_item, render_report
 
 STATE_DIR = Path.home() / ".claude" / "recall-judgment"
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
@@ -30,6 +32,8 @@ MEMORY_DB = Path.home() / ".claude" / "memory.sqlite"
 CALIBRATION_SAMPLE_SIZE = 40
 COMMON_TOKEN_SHARE = 0.02
 MAX_FAILURE_SHARE = 0.10
+HELDOUT_SIZE = 40
+HELDOUT_SEED = 20260930
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -250,9 +254,25 @@ def rejudge_sample(
     output exists and `RejudgeError` when a turn fails twice.
     """
     out = state_dir / "calibration" / f"rejudge-{today.isoformat()}.jsonl"
-    if out.exists():
-        raise FileExistsError(f"{out} already exists; move it aside to judge the sample again")
     pairs = calibration_pairs(report_path.read_text())
+    return judge_pairs(state_dir, pairs, out, client_factory, model, now, concurrency)
+
+
+def judge_pairs(
+    state_dir: Path,
+    pairs: list[tuple[str, str, int]],
+    out: Path,
+    client_factory: Callable[[], JudgeClient],
+    model: str,
+    now: datetime,
+    concurrency: int,
+) -> Path:
+    """Judge `(session, prompt_uuid, memory_id)` pairs, one call per turn, and write them to `out` in pair order.
+
+    Raises `FileExistsError` when `out` exists and `RejudgeError` when a turn fails twice.
+    """
+    if out.exists():
+        raise FileExistsError(f"{out} already exists; move it aside to judge these pairs again")
     turns = {(t.session, t.prompt_uuid): t for t in load_turns(state_dir, None)}
     ids_by_turn: dict[tuple[str, str], list[int]] = {}
     for session, prompt_uuid, memory_id in pairs:
@@ -268,6 +288,77 @@ def rejudge_sample(
     order = {pair: index for index, pair in enumerate(pairs)}
     write_jsonl(out, sorted(records, key=lambda v: order[v.key]))
     return out
+
+
+def model_judged_turns(state_dir: Path) -> set[tuple[str, str]]:
+    """Return every turn with a model verdict under `verdicts/` or `calibration/`."""
+    paths = [*sorted((state_dir / "verdicts").glob("*.jsonl")), *sorted((state_dir / "calibration").glob("*.jsonl"))]
+    return {
+        (v.session, v.prompt_uuid) for path in paths for v in read_verdicts(path) if v.judge_model != MECHANICAL_MODEL
+    }
+
+
+def heldout_sample(
+    state_dir: Path,
+    memory_db: Path,
+    seed: int,
+    size: int = HELDOUT_SIZE,
+    common_token_share: float = COMMON_TOKEN_SHARE,
+) -> tuple[Path, Path]:
+    """Draw `size` undecided, non-private pairs from turns no model has judged; write the blind file and pairs file.
+
+    Writes `calibration/heldout-blind.md`, with no verdicts, and
+    `calibration/heldout-pairs.jsonl`, one `{n, memory_id, session,
+    prompt_uuid}` per line. Raises `FileExistsError` when either exists.
+    """
+    blind = state_dir / "calibration" / "heldout-blind.md"
+    pairs_out = state_dir / "calibration" / "heldout-pairs.jsonl"
+    for path in (blind, pairs_out):
+        if path.exists():
+            raise FileExistsError(f"{path} already exists; move it aside to draw a new held-out sample")
+    all_turns = load_turns(state_dir, None)
+    common = common_tokens(all_turns, common_token_share)
+    private = private_memory_ids(memory_db)
+    seen = model_judged_turns(state_dir)
+    pool = sorted(
+        (turn.session, turn.prompt_uuid, memory_id)
+        for turn in all_turns
+        if (turn.session, turn.prompt_uuid) not in seen
+        for memory_id in classify(turn, "", common)[1]
+        if memory_id not in private
+    )
+    drawn = random.Random(seed).sample(pool, size)
+    turns = {(t.session, t.prompt_uuid): t for t in all_turns}
+    items = []
+    for number, (session, prompt_uuid, memory_id) in enumerate(drawn, start=1):
+        turn = turns[(session, prompt_uuid)]
+        recall = next(r for r in turn.recalls if r.id == memory_id)
+        items.append(calibration_item(number, memory_id, RecallKind.AUTOMATIC, recall.score, recall.text, turn))
+    blind.parent.mkdir(parents=True, exist_ok=True)
+    blind.write_text(
+        "# Held-out calibration sample\n\n"
+        f"{size} pairs drawn with seed {seed} from {len(pool)} undecided pairs on "
+        f"{len({(s, p) for s, p, _ in pool})} turns no model has judged. Grade each blind.\n\n"
+        + "\n\n".join(items)
+        + "\n"
+    )
+    pairs_out.write_text(
+        "".join(
+            json.dumps({"n": n, "memory_id": m, "session": s, "prompt_uuid": p}) + "\n"
+            for n, (s, p, m) in enumerate(drawn, start=1)
+        )
+    )
+    return blind, pairs_out
+
+
+def heldout_judge(
+    state_dir: Path, client_factory: Callable[[], JudgeClient], model: str, now: datetime, concurrency: int = 1
+) -> Path:
+    """Judge the pairs in `calibration/heldout-pairs.jsonl` into `calibration/heldout-judge.jsonl`."""
+    rows = [json.loads(line) for line in (state_dir / "calibration" / "heldout-pairs.jsonl").open()]
+    pairs = [(row["session"], row["prompt_uuid"], row["memory_id"]) for row in sorted(rows, key=lambda r: r["n"])]
+    out = state_dir / "calibration" / "heldout-judge.jsonl"
+    return judge_pairs(state_dir, pairs, out, client_factory, model, now, concurrency)
 
 
 def load_turns(state_dir: Path, since: datetime | None) -> list[Turn]:

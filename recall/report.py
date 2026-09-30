@@ -159,17 +159,28 @@ def calibration_section(
 ) -> str:
     model_judged = sum(1 for v in verdicts if v.verdict in MODEL_VERDICTS)
     entries = [
-        f"{number}. Memory {v.memory_id}, session `{v.session}`, prompt `{v.prompt_uuid}`, "
-        f"{v.recall_kind.value}{score_suffix(v.score)}\n\n"
-        f"    > {one_line(memory_texts[v.memory_id])}\n\n"
-        f"{turn_excerpt(turns[(v.session, v.prompt_uuid)])}\n\n"
-        "    Verdict: ______"
+        calibration_item(
+            number, v.memory_id, v.recall_kind, v.score, memory_texts[v.memory_id], turns[(v.session, v.prompt_uuid)]
+        )
         for number, v in enumerate(sample, start=1)
     ]
     return (
         "## Calibration sample\n\n"
         f"{len(sample)} of {model_judged} model-judged pairs. Grade each blind, then compare with the answer key.\n\n"
         + ("\n\n".join(entries) if entries else "None.")
+    )
+
+
+def calibration_item(
+    number: int, memory_id: int, kind: RecallKind, score: float | None, memory_text: str, turn: Turn
+) -> str:
+    """Return one blind calibration item: the pair, the memory, the turn's prompt and work, and a blank verdict."""
+    return (
+        f"{number}. Memory {memory_id}, session `{turn.session}`, prompt `{turn.prompt_uuid}`, "
+        f"{kind.value}{score_suffix(score)}\n\n"
+        f"    > {one_line(memory_text)}\n\n"
+        f"{turn_excerpt(turn)}\n\n"
+        "    Verdict: ______"
     )
 
 

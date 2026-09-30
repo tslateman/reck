@@ -14,10 +14,13 @@ from recall.cli_client import ClaudeCliClient
 from recall.judge import DEFAULT_MODEL, JudgeClient
 from recall.run import (
     COMMON_TOKEN_SHARE,
+    HELDOUT_SEED,
     MEMORY_DB,
     PROJECTS_DIR,
     STATE_DIR,
     extract_stage,
+    heldout_judge,
+    heldout_sample,
     judge_stage,
     rejudge_sample,
     report_stage,
@@ -60,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     rejudge.add_argument("--model", default=DEFAULT_MODEL)
     rejudge.add_argument("--backend", choices=BACKENDS, default="cli")
     rejudge.add_argument("--concurrency", type=int, default=1)
+    heldout = commands.add_parser("heldout-sample", help="Draw a blind sample from turns no model has judged.")
+    heldout.add_argument("--seed", type=int, default=HELDOUT_SEED)
+    heldout_judge_parser = commands.add_parser("heldout-judge", help="Judge the held-out sample's pairs.")
+    heldout_judge_parser.add_argument("--model", default=DEFAULT_MODEL)
+    heldout_judge_parser.add_argument("--backend", choices=BACKENDS, default="cli")
+    heldout_judge_parser.add_argument("--concurrency", type=int, default=1)
     nightly = commands.add_parser("nightly", help="Extract, judge the last two days, and report.")
     nightly.add_argument("--model", default=DEFAULT_MODEL)
     nightly.add_argument("--backend", choices=BACKENDS, default="cli")
@@ -106,6 +115,14 @@ def main(argv: list[str] | None = None) -> None:
             concurrency=args.concurrency,
         )
         print(f"rejudge-sample: {path}")
+    if args.command == "heldout-sample":
+        blind, pairs = heldout_sample(args.state_dir, args.memory_db, args.seed)
+        print(f"heldout-sample: seed {args.seed}\nheldout-sample: {blind}\nheldout-sample: {pairs}")
+    if args.command == "heldout-judge":
+        path = heldout_judge(
+            args.state_dir, client_factory(args.backend, args.state_dir), args.model, now, args.concurrency
+        )
+        print(f"heldout-judge: {path}")
     if args.command in ("report", "nightly"):
         print(f"report: {report_stage(args.state_dir, today, args.seed)}")
 
