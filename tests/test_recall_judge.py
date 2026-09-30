@@ -328,3 +328,22 @@ def test_prompt_demands_one_unbroken_quote_or_relevant_unused():
     assert "one unbroken span" in SYSTEM_PROMPT
     assert "never commentary" in SYSTEM_PROMPT
     assert "choose relevant_unused" in SYSTEM_PROMPT
+
+
+def test_prompt_makes_irrelevant_the_default_unless_a_decision_is_named():
+    assert "Most injected memories are irrelevant." in SYSTEM_PROMPT
+    assert "name, in reason, the decision or action in the turn that the memory bears on" in SYSTEM_PROMPT
+    assert "The same subject, tool, file type, or project is not enough." in SYSTEM_PROMPT
+    assert "in the situation the memory describes" in SYSTEM_PROMPT
+
+
+def test_prompt_rules_out_turns_whose_reply_is_fixed_or_that_only_report():
+    assert "reply with exactly X" in SYSTEM_PROMPT
+    assert "only reports or acknowledges" in SYSTEM_PROMPT
+    assert "so choose irrelevant" in SYSTEM_PROMPT
+
+
+def test_unquotable_act_falls_back_to_relevant_unused_only_with_a_named_decision():
+    assert "choose relevant_unused when the memory bears on a decision you can name, and irrelevant otherwise" in (
+        " ".join(SYSTEM_PROMPT.split())
+    )

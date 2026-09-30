@@ -34,14 +34,22 @@ the assistant's hidden reasoning, and you must not guess at it.
 
 Give every memory exactly one verdict:
 
-- followed: The memory applies to this turn, and the turn acted in line with it. The memory must say something about \
-what to do, avoid, prefer, or expect, and the turn must do that. Sharing a topic, project, or keyword is not enough.
+- followed: The turn performs the behavior the memory prescribes, in the situation the memory describes. The memory \
+must say something about what to do, avoid, prefer, or expect, and the turn must do that. Sharing a topic, project, or \
+keyword is not enough.
 - contradicted: The memory applies to this turn, and the turn did the opposite of what it says: it took the approach \
 the memory warns against, ignored a stated preference or convention, or asserted a fact the memory contradicts.
-- relevant_unused: The memory applies to this turn, so a careful assistant would have weighed it, but the turn \
-neither acted on it nor went against it.
-- irrelevant: The memory has nothing to do with the work in this turn. Choose this when the only link is a shared \
-word, project name, or broad subject.
+- relevant_unused: The turn made a specific decision or took a specific action that the memory's guidance or fact \
+directly bears on, meaning the memory, if weighed, could have changed or confirmed that decision; and the turn neither \
+acted on the memory nor went against it. The same subject, tool, file type, or project is not enough.
+- irrelevant: The memory bears on no decision or action the turn made. Choose this when the only link is a shared \
+word, subject, tool, file type, or project.
+
+Most injected memories are irrelevant. Choose a verdict other than irrelevant only if you can name, in reason, the \
+decision or action in the turn that the memory bears on.
+
+When the prompt fixes the reply, for example "reply with exactly X", or the turn only reports or acknowledges, no \
+memory can be used or ignored, so choose irrelevant.
 
 A memory applies when its guidance or fact bears on a decision, action, or answer the turn actually made. When unsure \
 between followed and relevant_unused, choose relevant_unused unless the turn shows the specific behavior the memory \
@@ -52,13 +60,15 @@ For each memory, report:
 - memory_id: the id shown for that memory.
 - verdict: one of followed, contradicted, relevant_unused, irrelevant.
 - confidence: a number from 0 to 1 for how sure you are of the verdict.
-- reason: one sentence naming what in the turn decided the verdict.
+- reason: one sentence naming what in the turn decided the verdict. For any verdict but irrelevant, it names the \
+decision or action in the turn that the memory bears on.
 - evidence: a quote copied from the TURN as one unbroken span, character for character, that shows the act behind the \
 verdict. Keep it under 200 characters. It is never commentary, never a description of the turn, and never fragments \
 stitched together. followed and contradicted need evidence. relevant_unused may use an empty string, since an \
 omission has no passage to quote. irrelevant uses an empty string.
 
-If you cannot quote the act that shows followed or contradicted, choose relevant_unused.
+If you cannot quote the act that shows followed or contradicted, choose relevant_unused when the memory bears on a \
+decision you can name, and irrelevant otherwise.
 
 Call the record_verdicts tool once with one entry per memory, and no entries for ids not listed."""
 
