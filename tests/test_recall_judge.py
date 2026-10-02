@@ -347,3 +347,74 @@ def test_unquotable_act_falls_back_to_relevant_unused_only_with_a_named_decision
     assert "choose relevant_unused when the memory bears on a decision you can name, and irrelevant otherwise" in (
         " ".join(SYSTEM_PROMPT.split())
     )
+
+
+KEYCHAIN_SLICE = (
+    "TOOL Bash: "
+    + json.dumps(
+        {
+            "command": "cd /Users/tslater/dev/spec-trace-cloudflare\n"
+            "git add justfile AGENTS.md README.md && git commit -m \"$(cat <<'EOF'\n"
+            "feat: Read the deployed key from the keychain, not the working tree\n\n"
+            "Local development required a hand-copied .dev.vars holding the production\n"
+            "SPECTRACE_API_KEY. `just dev-secrets` now writes dummy values, `app-dev-local`\n"
+            "generates the session secret per run, and `app-dev` reads the deployed key\n"
+            "from the login keychain into a 0600 file it removes on exit. Copying a secret\n"
+            'by hand is what leaked the last one.\nEOF\n)"\ngit log --oneline -3',
+            "description": "Commit secrets work and roadmap cleanup",
+        }
+    )
+    + "\nASSISTANT: One note on attribution: I followed CLAUDE.md and omitted it on all five."
+)
+KEYCHAIN_COMMAND_QUOTE = (
+    "git add justfile AGENTS.md README.md && git commit -m \"$(cat <<'EOF'\n"
+    "feat: Read the deployed key from the keychain, not the working tree\n\n"
+    "Local development required a hand-copied .dev.vars holding the production\n"
+    "SPECTRACE_API_KEY. `just dev-secrets` now writes dummy values, `app-dev-local`\n"
+    "generates the session secret per run, and `app-dev` reads the deployed key\n"
+    "from the login keychain into a 0600 file it removes on exit. Copying a secret\n"
+    'by hand is what leaked the last one.\nEOF\n)"'
+)
+CHANGELOG_SLICE = "TOOL Bash: " + json.dumps(
+    {"command": 'git diff CHANGELOG.md && git commit CHANGELOG.md -q -m "docs: Update the changelog" && git log -2'}
+)
+
+
+def judge_slice(slice_text: str, verdict: str, evidence: str) -> list:
+    turn = Turn(
+        session="137bd52c",
+        prompt_uuid="949c6f17",
+        ts="2026-09-20T00:00:00Z",
+        project="p",
+        prompt="commit it",
+        recalls=[Recall(id=3663, scope="global", scorer="fts5", score=-9.0, text="Commit with a conventional prefix.")],
+        slice=slice_text,
+    )
+    return judge_turn(turn, [3663], FakeClient(tool_response(entry(3663, verdict, evidence=evidence))), "m", JUDGED_AT)
+
+
+@pytest.mark.parametrize(
+    ("slice_text", "evidence"),
+    [
+        (KEYCHAIN_SLICE, KEYCHAIN_COMMAND_QUOTE),
+        (CHANGELOG_SLICE, 'git commit CHANGELOG.md -q -m "docs: Update the changelog"'),
+    ],
+    ids=["heredoc-949c6f17", "quotes-06d71227"],
+)
+def test_quote_of_a_json_escaped_command_matches_its_slice(slice_text: str, evidence: str):
+    [record] = judge_slice(slice_text, "followed", evidence)
+    assert record.evidence == evidence
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        KEYCHAIN_COMMAND_QUOTE.replace("SPECTRACE_API_KEY. `just", "SPECTRACE_API_KEY... `just"),
+        KEYCHAIN_COMMAND_QUOTE + ' and "One note on attribution: I followed CLAUDE.md and omitted it on all five."',
+        KEYCHAIN_COMMAND_QUOTE.replace("feat: Read", "feat: Reads"),
+    ],
+    ids=["elided", "stitched", "altered"],
+)
+def test_escape_insensitive_match_still_needs_one_unbroken_span(evidence: str):
+    with pytest.raises(JudgeResponseError, match="not quoted from the turn"):
+        judge_slice(KEYCHAIN_SLICE, "followed", evidence)

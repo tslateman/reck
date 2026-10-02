@@ -206,7 +206,7 @@ def validate_entry(entry: dict, slice_text: str) -> dict:
         if evidence != "":
             raise JudgeResponseError(f"memory {memory_id}: irrelevant verdicts carry no evidence")
     elif (verdict is not RecallVerdict.RELEVANT_UNUSED or evidence != "") and (
-        not evidence.strip() or collapse_whitespace(evidence) not in collapse_whitespace(slice_text)
+        not evidence.strip() or unescaped(evidence) not in unescaped(slice_text)
     ):
         raise JudgeResponseError(f"memory {memory_id}: evidence {evidence!r} is not quoted from the turn")
     return {**entry, "verdict": verdict, "confidence": float(confidence)}
@@ -214,3 +214,8 @@ def validate_entry(entry: dict, slice_text: str) -> dict:
 
 def collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def unescaped(text: str) -> str:
+    """Return `text` in the form `validate_entry` compares evidence and slice in."""
+    return collapse_whitespace(re.sub(r"\\[ntr]", " ", text).replace("\\", ""))
