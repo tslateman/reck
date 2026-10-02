@@ -148,19 +148,38 @@ def judge_stage(
         jobs.append((turn, model_ids))
     if dry_run or not jobs:
         return summary
-    client = client_factory()
-    for result in bounded_map(lambda job: judge_or_fail(*job, client, model, judged_at), jobs, concurrency):
-        if isinstance(result, TurnFailure):
-            append_failure(failures_out, result)
-            summary.failed_turns += 1
-        else:
-            write_jsonl(out, result)
-            summary.model_verdicts += len(result)
+    summary.model_verdicts, summary.failed_turns = judge_jobs(
+        jobs, client_factory(), model, judged_at, concurrency, out, failures_out
+    )
     if summary.failed_turns > max_failure_share * summary.model_turns:
         raise JudgeFailureCeilingError(
             f"{summary.failed_turns} of {summary.model_turns} model turns failed judging; see {failures_out}"
         )
     return summary
+
+
+def judge_jobs(
+    jobs: list[tuple[Turn, list[int]]],
+    client: JudgeClient,
+    model: str,
+    judged_at: str,
+    concurrency: int,
+    out: Path,
+    failures_out: Path,
+) -> tuple[int, int]:
+    """Judge each `(turn, ids)` job, appending its verdicts to `out` or its failure to `failures_out` as it ends.
+
+    Returns `(verdicts_written, turns_failed)`.
+    """
+    written = failed = 0
+    for result in bounded_map(lambda job: judge_or_fail(*job, client, model, judged_at), jobs, concurrency):
+        if isinstance(result, TurnFailure):
+            append_failure(failures_out, result)
+            failed += 1
+        else:
+            write_jsonl(out, result)
+            written += len(result)
+    return written, failed
 
 
 def judge_or_fail(
@@ -228,10 +247,6 @@ def report_stage(state_dir: Path, today: date, seed: int) -> Path:
 SAMPLE_ITEM = re.compile(r"^\d+\. Memory (\d+), session `([^`]+)`, prompt `([^`]+)`", re.MULTILINE)
 
 
-class RejudgeError(RuntimeError):
-    """A sampled turn broke the verdict contract twice."""
-
-
 def calibration_pairs(report: str) -> list[tuple[str, str, int]]:
     """Return `(session, prompt_uuid, memory_id)` for each item of the report's calibration sample, in order."""
     section = report.split("## Calibration sample")[1].split("## Answer key")[0]
@@ -250,8 +265,8 @@ def rejudge_sample(
     """Judge again every pair in `report_path`'s calibration sample and write `calibration/rejudge-<today>.jsonl`.
 
     Makes one model call per sampled turn, holding only that turn's sampled
-    ids. Writes nothing under `verdicts/`. Raises `FileExistsError` when the
-    output exists and `RejudgeError` when a turn fails twice.
+    ids. Writes nothing under `verdicts/`. Reruns and failures behave as in
+    `judge_pairs`.
     """
     out = state_dir / "calibration" / f"rejudge-{today.isoformat()}.jsonl"
     pairs = calibration_pairs(report_path.read_text())
@@ -266,27 +281,30 @@ def judge_pairs(
     model: str,
     now: datetime,
     concurrency: int,
+    max_failure_share: float = MAX_FAILURE_SHARE,
 ) -> Path:
-    """Judge `(session, prompt_uuid, memory_id)` pairs, one call per turn, and write them to `out` in pair order.
+    """Judge `(session, prompt_uuid, memory_id)` pairs, one call per turn, appending each turn's verdicts to `out`.
 
-    Raises `FileExistsError` when `out` exists and `RejudgeError` when a turn fails twice.
+    Pairs already in `out` are skipped, so a rerun picks up where a failed
+    run stopped. A turn that breaks the verdict contract twice is appended to
+    `<out stem>-failures.jsonl` beside `out`; if more than `max_failure_share`
+    of the turns attempted fail, `JudgeFailureCeilingError` is raised once
+    every result is written. Any other error from the client raises at once.
     """
-    if out.exists():
-        raise FileExistsError(f"{out} already exists; move it aside to judge these pairs again")
+    done = {v.key for v in read_verdicts(out)} if out.exists() else set()
     turns = {(t.session, t.prompt_uuid): t for t in load_turns(state_dir, None)}
     ids_by_turn: dict[tuple[str, str], list[int]] = {}
     for session, prompt_uuid, memory_id in pairs:
-        ids_by_turn.setdefault((session, prompt_uuid), []).append(memory_id)
+        if (session, prompt_uuid, memory_id) not in done:
+            ids_by_turn.setdefault((session, prompt_uuid), []).append(memory_id)
+    if not ids_by_turn:
+        return out
     jobs = [(turns[key], ids) for key, ids in ids_by_turn.items()]
+    failures_out = out.with_name(f"{out.stem}-failures.jsonl")
     judged_at = now.isoformat().replace("+00:00", "Z")
-    client = client_factory()
-    records: list[VerdictRecord] = []
-    for result in bounded_map(lambda job: judge_or_fail(*job, client, model, judged_at), jobs, concurrency):
-        if isinstance(result, TurnFailure):
-            raise RejudgeError(f"{result.session} {result.prompt_uuid} {result.ids}: {result.errors}")
-        records.extend(result)
-    order = {pair: index for index, pair in enumerate(pairs)}
-    write_jsonl(out, sorted(records, key=lambda v: order[v.key]))
+    _, failed = judge_jobs(jobs, client_factory(), model, judged_at, concurrency, out, failures_out)
+    if failed > max_failure_share * len(jobs):
+        raise JudgeFailureCeilingError(f"{failed} of {len(jobs)} turns failed judging; see {failures_out}")
     return out
 
 
@@ -352,13 +370,18 @@ def heldout_sample(
 
 
 def heldout_judge(
-    state_dir: Path, client_factory: Callable[[], JudgeClient], model: str, now: datetime, concurrency: int = 1
+    state_dir: Path,
+    client_factory: Callable[[], JudgeClient],
+    model: str,
+    now: datetime,
+    concurrency: int = 1,
+    max_failure_share: float = MAX_FAILURE_SHARE,
 ) -> Path:
-    """Judge the pairs in `calibration/heldout-pairs.jsonl` into `calibration/heldout-judge.jsonl`."""
+    """Judge `calibration/heldout-pairs.jsonl` into `calibration/heldout-judge.jsonl`, as `judge_pairs` does."""
     rows = [json.loads(line) for line in (state_dir / "calibration" / "heldout-pairs.jsonl").open()]
     pairs = [(row["session"], row["prompt_uuid"], row["memory_id"]) for row in sorted(rows, key=lambda r: r["n"])]
     out = state_dir / "calibration" / "heldout-judge.jsonl"
-    return judge_pairs(state_dir, pairs, out, client_factory, model, now, concurrency)
+    return judge_pairs(state_dir, pairs, out, client_factory, model, now, concurrency, max_failure_share)
 
 
 def load_turns(state_dir: Path, since: datetime | None) -> list[Turn]:

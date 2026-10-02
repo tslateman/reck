@@ -15,7 +15,6 @@ from recall.judge import TOOL_NAME
 from recall.records import Recall, RecallVerdict, Turn, read_turns, read_verdicts, write_jsonl
 from recall.run import (
     JudgeFailureCeilingError,
-    RejudgeError,
     calibration_pairs,
     extract_stage,
     heldout_judge,
@@ -326,23 +325,31 @@ def test_rejudge_sample_calls_once_per_turn_and_leaves_verdicts_alone(state, pub
     assert out == state / "calibration" / "rejudge-2026-09-30.jsonl"
     assert sorted(client.messages.calls) == [[102], [301, 302], [401]]
     records = read_verdicts(out)
-    assert [v.key for v in records] == calibration_pairs(report.read_text())
+    assert sorted(v.key for v in records) == sorted(calibration_pairs(report.read_text()))
     assert all(v.judge_model == "test-model" for v in records)
     assert {p.name: p.read_bytes() for p in (state / "verdicts").glob("*.jsonl")} == verdicts_before
 
 
-def test_rejudge_sample_refuses_to_overwrite_an_earlier_result(state, public_db):
+def test_rejudge_sample_rerun_judges_only_pairs_not_yet_written(state, public_db):
     report = sampled_report(state, public_db)
-    rejudge_sample(state, report, FakeClient, "test-model", TODAY, NOW)
-    with pytest.raises(FileExistsError):
-        rejudge_sample(state, report, FakeClient, "test-model", TODAY, NOW)
+    out = rejudge_sample(state, report, FakeClient, "test-model", TODAY, NOW)
+    written = out.read_text()
+    client = FakeClient()
+    rejudge_sample(state, report, lambda: client, "test-model", TODAY, NOW)
+    assert client.messages.calls == []
+    assert out.read_text() == written
 
 
-def test_rejudge_sample_raises_when_a_turn_fails_twice(state, public_db):
+def test_failing_turn_keeps_the_other_turns_verdicts_and_raises_over_the_ceiling(state, public_db):
     report = sampled_report(state, public_db)
-    with pytest.raises(RejudgeError, match="301"):
-        rejudge_sample(state, report, lambda: FakeClient(FakeMessages(bad_ids=frozenset({301}))), "m", TODAY, NOW)
-    assert not (state / "calibration" / f"rejudge-{TODAY.isoformat()}.jsonl").exists()
+    failing = FakeClient(FakeMessages(bad_ids=frozenset({301})))
+    with pytest.raises(JudgeFailureCeilingError, match="1 of 3 turns failed judging"):
+        rejudge_sample(state, report, lambda: failing, "m", TODAY, NOW)
+    out = state / "calibration" / f"rejudge-{TODAY.isoformat()}.jsonl"
+    assert sorted(v.memory_id for v in read_verdicts(out)) == [102, 401]
+    failures = state / "calibration" / f"rejudge-{TODAY.isoformat()}-failures.jsonl"
+    [failure] = [json.loads(line) for line in failures.open()]
+    assert (failure["session"], failure["ids"], len(failure["errors"])) == (SESSION, [301, 302], 2)
 
 
 def test_rejudge_sample_subcommand_takes_a_report_path():
@@ -396,8 +403,23 @@ def test_heldout_judge_writes_one_verdict_per_pair_in_draw_order(state, memory_d
     out = heldout_judge(state, lambda: client, "test-model", NOW)
     rows = [json.loads(line) for line in pairs.open()]
     assert out == state / "calibration" / "heldout-judge.jsonl"
-    assert [v.key for v in read_verdicts(out)] == [(r["session"], r["prompt_uuid"], r["memory_id"]) for r in rows]
+    assert sorted(v.key for v in read_verdicts(out)) == sorted(
+        (r["session"], r["prompt_uuid"], r["memory_id"]) for r in rows
+    )
     assert sorted(client.messages.calls) == [[102], [301], [401]]
+
+
+def test_heldout_judge_records_a_failed_turn_and_a_later_run_retries_it(state, memory_db):
+    heldout_sample(state, memory_db, seed=5, size=3)
+    failing = FakeClient(FakeMessages(bad_ids=frozenset({301})))
+    out = heldout_judge(state, lambda: failing, "m", NOW, max_failure_share=0.5)
+    assert sorted(v.memory_id for v in read_verdicts(out)) == [102, 401]
+    failures = state / "calibration" / "heldout-judge-failures.jsonl"
+    assert [json.loads(line)["ids"] for line in failures.open()] == [[301]]
+    retry = FakeClient()
+    heldout_judge(state, lambda: retry, "m", NOW)
+    assert retry.messages.calls == [[301]]
+    assert sorted(v.memory_id for v in read_verdicts(out)) == [102, 301, 401]
     assert not (state / "verdicts").exists() or all(v.judge_model == "mechanical" for v in all_verdicts(state))
 
 
