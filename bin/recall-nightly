@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euo pipefail
+
+backend=cli
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+    case "${args[i]}" in
+        --backend=*) backend="${args[i]#--backend=}" ;;
+        --backend) backend="${args[i + 1]}" ;;
+    esac
+done
+
+if [[ "$backend" == api ]]; then
+    if ! api_key="$(security find-generic-password -s anthropic-api-key -w)"; then
+        echo "recall-nightly: --backend api needs the Keychain item 'anthropic-api-key'. Add it with: security add-generic-password -s anthropic-api-key -a \"\$USER\" -w" >&2
+        exit 1
+    fi
+    export ANTHROPIC_API_KEY="$api_key"
+fi
+
+cd "$(dirname "$0")/.."
+echo "recall-nightly: start $(date -u +%Y-%m-%dT%H:%M:%SZ) backend $backend"
+uv run python -m recall nightly --concurrency 4 "$@"
+echo "recall-nightly: backlog $(date -u +%Y-%m-%dT%H:%M:%SZ) limit ${RECALL_BACKLOG_LIMIT:-150}"
+uv run python -m recall judge --backend "$backend" --concurrency 4 --limit "${RECALL_BACKLOG_LIMIT:-150}"
+uv run python -m recall report
+echo "recall-nightly: done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
