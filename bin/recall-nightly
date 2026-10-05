@@ -20,4 +20,8 @@ fi
 
 cd "$(dirname "$0")/.."
 echo "recall-nightly: start $(date -u +%Y-%m-%dT%H:%M:%SZ) backend $backend"
-exec uv run python -m recall nightly "$@"
+uv run python -m recall nightly --concurrency 4 "$@"
+echo "recall-nightly: backlog $(date -u +%Y-%m-%dT%H:%M:%SZ) limit ${RECALL_BACKLOG_LIMIT:-150}"
+uv run python -m recall judge --backend "$backend" --concurrency 4 --limit "${RECALL_BACKLOG_LIMIT:-150}"
+uv run python -m recall report
+echo "recall-nightly: done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
