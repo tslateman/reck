@@ -21,6 +21,10 @@ class ClaudeCliError(RuntimeError):
     """`claude -p` failed, timed out, or answered without structured output."""
 
 
+class ClaudeCliTimeout(ClaudeCliError):
+    """`claude -p` ran past its timeout and its process group was killed."""
+
+
 @dataclass
 class ToolUseBlock:
     type: str
@@ -84,7 +88,7 @@ class CliMessages:
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
-            raise ClaudeCliError(f"claude -p timed out after {self.timeout}s; killed process group {process.pid}")
+            raise ClaudeCliTimeout(f"claude -p timed out after {self.timeout}s; killed process group {process.pid}")
         if process.returncode != 0:
             raise ClaudeCliError(f"claude -p exited {process.returncode}: {stderr.strip()} {stdout.strip()[-500:]}")
         result = json.loads(stdout)

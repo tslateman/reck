@@ -19,6 +19,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import TypeVar
 
+from recall.cli_client import ClaudeCliTimeout
 from recall.extract import extract_session
 from recall.judge import JudgeClient, JudgeResponseError, judge_turn
 from recall.mechanical import JUDGE_MODEL as MECHANICAL_MODEL
@@ -185,12 +186,12 @@ def judge_jobs(
 def judge_or_fail(
     turn: Turn, memory_ids: list[int], client: JudgeClient, model: str, judged_at: str
 ) -> list[VerdictRecord] | TurnFailure:
-    """Call `judge_turn`, retrying once on `JudgeResponseError`; return a `TurnFailure` after the second."""
+    """Call `judge_turn`, retrying once on a bad response or a timeout; return a `TurnFailure` after the second."""
     errors = []
     for _ in range(2):
         try:
             return judge_turn(turn, memory_ids, client, model, judged_at)
-        except JudgeResponseError as e:
+        except (JudgeResponseError, ClaudeCliTimeout) as e:
             errors.append(str(e))
     return TurnFailure(turn.session, turn.prompt_uuid, memory_ids, errors, judged_at)
 

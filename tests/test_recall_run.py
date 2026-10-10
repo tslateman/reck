@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from recall.__main__ import build_parser, client_factory, main
-from recall.cli_client import ClaudeCliClient, ClaudeCliError
+from recall.cli_client import ClaudeCliClient, ClaudeCliError, ClaudeCliTimeout
 from recall.judge import TOOL_NAME
 from recall.records import Recall, RecallVerdict, Turn, read_turns, read_verdicts, write_jsonl
 from recall.run import (
@@ -51,6 +51,8 @@ class FakeMessages:
     bad_responses: int = 0
     bad_ids: frozenset[int] = frozenset()
     error: Exception | None = None
+    timeouts: int = 0
+    timeout_ids: frozenset[int] = frozenset()
     calls: list[list[int]] = field(default_factory=list)
 
     def create(self, **kwargs: Any) -> Response:
@@ -58,6 +60,8 @@ class FakeMessages:
         self.calls.append(ids)
         if self.error is not None:
             raise self.error
+        if len(self.calls) <= self.timeouts or self.timeout_ids & set(ids):
+            raise ClaudeCliTimeout("claude -p timed out after 300s; killed process group 1")
         if len(self.calls) <= self.bad_responses or self.bad_ids & set(ids):
             return Response(stop_reason="end_turn", content=[])
         entries = [
@@ -157,6 +161,22 @@ def test_bad_response_is_retried_once(state, memory_db):
     summary = judge(state, memory_db, lambda: client)
     assert client.messages.calls[:2] == [[102], [102]]
     assert summary.model_verdicts == 3
+
+
+def test_timed_out_call_is_retried_once(state, memory_db):
+    client = FakeClient(FakeMessages(timeouts=1))
+    summary = judge(state, memory_db, lambda: client)
+    assert client.messages.calls[:2] == [[102], [102]]
+    assert summary.model_verdicts == 3
+
+
+def test_second_timeout_is_recorded_and_the_run_continues(state, memory_db):
+    client = FakeClient(FakeMessages(timeout_ids=frozenset({301})))
+    summary = judge(state, memory_db, lambda: client, max_failure_share=0.5)
+    [failure] = failure_records(state)
+    assert failure["ids"] == [301]
+    assert all("timed out" in error for error in failure["errors"])
+    assert (summary.model_verdicts, summary.failed_turns) == (2, 1)
 
 
 def failure_records(state_dir):
